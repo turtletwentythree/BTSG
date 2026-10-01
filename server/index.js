@@ -27,7 +27,7 @@ const local = /localhost|127\.0\.0\.1/.test(process.env.DATABASE_URL);
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_SSL === 'false' || local ? false : { rejectUnauthorized: false },
-  max: 10,
+  max: process.env.VERCEL ? 2 : 10,
 });
 const q = (text, params) => pool.query(text, params);
 
@@ -227,6 +227,10 @@ if (fs.existsSync(path.join(DIST, 'index.html'))) {
   app.get('*', (_q, res) => res.sendFile(path.join(DIST, 'index.html')));
 }
 
-await initStorage();
-await initDb();
-app.listen(PORT, () => console.log(`Legal Request API on http://localhost:${PORT} (storage: ${storageMode})`));
+export const ready = (async () => { await initStorage(); await initDb(); })();
+export default app;
+
+if (!process.env.VERCEL) {
+  await ready;
+  app.listen(PORT, () => console.log(`Legal Request API on http://localhost:${PORT} (storage: ${storageMode})`));
+}
