@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: legal-request-system
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: node server/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: SUPABASE_BUCKET
+        value: attachments
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
