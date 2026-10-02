@@ -31,7 +31,10 @@ export default function RequestDetail() {
           <p className="atr-dht-title">{r.title}</p>
           <p className="atr-dht-subtitle">{r.no} · {r.type} · {r.matter}</p>
         </div>
-        <span className={'badge-status' + (r.step === 10 ? ' done' : '')}>{STEPS[r.step - 1]}</span>
+        <div className="head-actions">
+          {r.can_edit && <Link className="btn btn-outline" to={`/requests/${r.id}/edit`}><i className="mdi mdi-pencil-outline" /> แก้ไขข้อมูล</Link>}
+          <span className={'badge-status' + (r.step === 10 ? ' done' : '')}>{STEPS[r.step - 1]}</span>
+        </div>
       </div>
       <Stepper current={r.step} />
       {error && <div className="err big">{error}</div>}

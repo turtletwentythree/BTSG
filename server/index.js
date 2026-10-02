@@ -79,6 +79,7 @@ const actorOf = (req) => req.user?.name || 'Unknown';
 const REQUESTER_STEPS = new Set([5]);
 const isOwner = (r, user) =>
   !!user && (r.requester_email ? r.requester_email.toLowerCase() === String(user.email || '').toLowerCase() : r.requester === user.name);
+const canEdit = (r, user) => isApprover(user) || (isOwner(r, user) && r.step < STEPS.length);
 const canAdvance = (r, user) => r.step < STEPS.length && (isApprover(user) || (REQUESTER_STEPS.has(r.step) && isOwner(r, user)));
 const fixName = (n) => Buffer.from(n, 'latin1').toString('utf8'); // multer gives latin1 names
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -161,7 +162,36 @@ app.get('/api/requests/:id', wrap(async (req, res) => {
   if (!r) return res.status(404).json({ error: 'Not found' });
   const att = await q(`SELECT ${ATT_COLS} FROM attachments WHERE request_id=$1 ORDER BY id`, [r.id]);
   const hist = await q('SELECT step,note,actor,at FROM history WHERE request_id=$1 ORDER BY id', [r.id]);
-  res.json({ ...withStep(r), can_advance: canAdvance(r, req.user), attachments: att.rows, history: hist.rows.map((h) => ({ ...h, step_name: STEPS[h.step - 1] })) });
+  res.json({ ...withStep(r), can_advance: canAdvance(r, req.user), can_edit: canEdit(r, req.user), attachments: att.rows, history: hist.rows.map((h) => ({ ...h, step_name: STEPS[h.step - 1] })) });
+}));
+
+app.patch('/api/requests/:id', wrap(async (req, res) => {
+  const r = await findRequest(req.params.id);
+  if (!r) return res.status(404).json({ error: 'Not found' });
+  if (!canEdit(r, req.user)) return res.status(403).json({ error: 'You do not have permission to edit this request' });
+  const title = String(req.body?.title ?? r.title).trim().slice(0, 300);
+  if (!title) return res.status(400).json({ error: 'title is required' });
+  const incoming = req.body?.fields;
+  if (incoming && (typeof incoming !== 'object' || Array.isArray(incoming))) return res.status(400).json({ error: 'fields must be an object' });
+  const fields = {};
+  for (const [k, v] of Object.entries(incoming ?? r.fields ?? {})) {
+    if (v == null || typeof v === 'object') continue;
+    fields[String(k).slice(0, 60)] = String(v).slice(0, 5000);
+  }
+  const changed = [];
+  if (title !== r.title) changed.push('title');
+  for (const k of new Set([...Object.keys(fields), ...Object.keys(r.fields || {})])) {
+    if (String(fields[k] ?? '') !== String((r.fields || {})[k] ?? '')) changed.push(k);
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('UPDATE requests SET title=$1, fields=$2, updated_at=now() WHERE id=$3', [title, JSON.stringify(fields), r.id]);
+    if (changed.length) await addHistory(client, r.id, r.step, `Request details edited (${changed.join(', ')})`, actorOf(req));
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
+  const { rows } = await q('SELECT * FROM requests WHERE id=$1', [r.id]);
+  res.json(withStep(rows[0]));
 }));
 
 app.post('/api/requests/:id/advance', wrap(async (req, res) => {

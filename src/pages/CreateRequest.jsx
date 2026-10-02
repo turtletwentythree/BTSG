@@ -4,24 +4,9 @@ import Select from '../components/Select.jsx';
 import Stepper from '../components/Stepper.jsx';
 import FileDrop from '../components/FileDrop.jsx';
 import { MATTER_FIELDS, REQUEST_TYPES } from '../data/requestTypes';
+import Field from '../components/Field.jsx';
 import { api } from '../api';
 
-function Field({ f, value, onChange, error }) {
-  return (
-    <div className="field">
-      <label>{f.label}{f.required && <span className="req">*</span>}</label>
-      {f.type === 'select' ? (
-        <Select value={value} options={f.options} onChange={onChange} />
-      ) : f.type === 'textarea' ? (
-        <textarea className="form-control" rows="4" value={value} onChange={(e) => onChange(e.target.value)} />
-      ) : (
-        <input className="form-control" type={f.type} min={f.type === 'number' ? 0 : undefined}
-          value={value} onChange={(e) => onChange(e.target.value)} />
-      )}
-      {error && <div className="err">กรุณากรอกข้อมูลนี้ (Required)</div>}
-    </div>
-  );
-}
 
 export default function CreateRequest() {
   const { state } = useLocation();

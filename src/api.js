@@ -10,6 +10,9 @@ export const api = {
   stats: () => call('/stats'),
   get: (id) => call('/requests/' + id),
   create: (form) => call('/requests', { method: 'POST', body: form }),
+  update: (id, body) => call('/requests/' + id, {
+    method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  }),
   advance: (id, note) => call(`/requests/${id}/advance`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note }),
   }),

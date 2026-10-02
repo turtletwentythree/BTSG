@@ -7,6 +7,7 @@ import CreateRequest from './pages/CreateRequest.jsx';
 import AllRequest from './pages/AllRequest.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import RequestDetail from './pages/RequestDetail.jsx';
+import EditRequest from './pages/EditRequest.jsx';
 
 function Protected({ children }) {
   const { user, loading } = useApp();
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="/" element={<AllRequest />} />
         <Route path="/all-type-request" element={<AllTypeRequest />} />
         <Route path="/requests/:id" element={<RequestDetail />} />
+        <Route path="/requests/:id/edit" element={<EditRequest />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/create-requests" element={<CreateRequest />} />
       </Route>
