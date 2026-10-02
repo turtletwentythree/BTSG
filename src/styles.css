@@ -180,3 +180,9 @@ textarea.form-control{resize:vertical}
 .head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .head-actions .btn{text-decoration:none}
 .btn-back{text-decoration:none}
+
+.filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 12px;margin-bottom:12px}
+.filters label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted)}
+.filters select,.filters input[type=date]{font:inherit;font-size:13px;color:#212529;padding:5px 8px;border:1px solid #ced4da;border-radius:6px;background:#fff;min-width:130px;max-width:200px}
+.filters .btn{padding:4px 12px;font-size:13px}
+.filters .count{font-size:12px;margin-left:auto;align-self:center}

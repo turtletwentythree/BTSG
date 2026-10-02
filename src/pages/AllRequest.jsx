@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { STEPS } from '../data/requestTypes';
@@ -8,6 +8,17 @@ export default function AllRequest() {
   const [q, setQ] = useState('');
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
+  const [flt, setFlt] = useState({ type: '', matter: '', status: '', requester: '', from: '', to: '' });
+  const setF = (k, v) => setFlt((f) => ({ ...f, [k]: v }));
+  const opts = useMemo(() => {
+    const uniq = (fn) => [...new Set((rows || []).map(fn))].filter(Boolean).sort();
+    return { type: uniq((r) => r.type), matter: uniq((r) => r.matter), requester: uniq((r) => r.requester) };
+  }, [rows]);
+  const shown = useMemo(() => (rows || []).filter((r) =>
+    (!flt.type || r.type === flt.type) && (!flt.matter || r.matter === flt.matter) &&
+    (!flt.requester || r.requester === flt.requester) && (!flt.status || String(r.step) === flt.status) &&
+    (!flt.from || r.created_at.slice(0, 10) >= flt.from) && (!flt.to || r.created_at.slice(0, 10) <= flt.to)), [rows, flt]);
+  const active = Object.values(flt).some(Boolean);
   useEffect(() => {
     const t = setTimeout(() => api.list(q).then(setRows).catch((e) => setError(e.message)), 200);
     return () => clearTimeout(t);
@@ -28,6 +39,36 @@ export default function AllRequest() {
       </div>
       <hr className="atr-hr" />
       <input className="form-control search" placeholder="Search..." value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="filters">
+        <label>Type
+          <select value={flt.type} onChange={(e) => setF('type', e.target.value)}>
+            <option value="">ทั้งหมด</option>{opts.type.map((o) => <option key={o}>{o}</option>)}
+          </select>
+        </label>
+        <label>Matter
+          <select value={flt.matter} onChange={(e) => setF('matter', e.target.value)}>
+            <option value="">ทั้งหมด</option>{opts.matter.map((o) => <option key={o}>{o}</option>)}
+          </select>
+        </label>
+        <label>Status
+          <select value={flt.status} onChange={(e) => setF('status', e.target.value)}>
+            <option value="">ทั้งหมด</option>{STEPS.map((o, i) => <option key={o} value={i + 1}>{o}</option>)}
+          </select>
+        </label>
+        <label>Requester
+          <select value={flt.requester} onChange={(e) => setF('requester', e.target.value)}>
+            <option value="">ทั้งหมด</option>{opts.requester.map((o) => <option key={o}>{o}</option>)}
+          </select>
+        </label>
+        <label>Created from
+          <input type="date" value={flt.from} onChange={(e) => setF('from', e.target.value)} />
+        </label>
+        <label>to
+          <input type="date" value={flt.to} onChange={(e) => setF('to', e.target.value)} />
+        </label>
+        {active && <button className="btn btn-outline" onClick={() => setFlt({ type: '', matter: '', status: '', requester: '', from: '', to: '' })}>ล้างตัวกรอง</button>}
+        {rows && <span className="muted count">{shown.length} / {rows.length} รายการ</span>}
+      </div>
       {error && <div className="err big">{error}</div>}
       <div className="table-wrap">
         <table className="tbl">
@@ -35,14 +76,14 @@ export default function AllRequest() {
             <tr><th>Request No.</th><th>Type</th><th>Matter</th><th>Title</th><th>Requester</th><th>Created</th><th>Status</th></tr>
           </thead>
           <tbody>
-            {(rows || []).map((r) => (
+            {shown.map((r) => (
               <tr key={r.id} className="clickable" onClick={() => nav('/requests/' + r.id)}>
                 <td>{r.no}</td><td>{r.type}</td><td>{r.matter}</td><td>{r.title}</td>
                 <td>{r.requester}</td><td>{r.created_at.slice(0, 10)}</td>
                 <td><span className={'badge-status' + (r.step === 10 ? ' done' : '')}>{STEPS[r.step - 1]}</span></td>
               </tr>
             ))}
-            {rows && rows.length === 0 && <tr><td colSpan="7" className="empty">No requests found</td></tr>}
+            {rows && shown.length === 0 && <tr><td colSpan="7" className="empty">No requests found</td></tr>}
             {!rows && !error && <tr><td colSpan="7" className="empty">Loading...</td></tr>}
           </tbody>
         </table>
