@@ -9,6 +9,7 @@ Users are recorded in the `users` table on first sign-in.
 |---|---|
 | `APP_URL` | Public URL of the site (no trailing slash). Local: `http://localhost:5173` |
 | `SESSION_SECRET` | Random string, `openssl rand -hex 32` (Render generates one) |
+| `APPROVER_EMAILS` | Emails (comma-separated) allowed to approve and move any request to the next step. Requesters can only act on the step waiting for them ("Waiting for user comment"). Empty = everyone signed in can approve |
 | `ALLOWED_EMAIL_DOMAINS` / `ALLOWED_EMAILS` | Who may sign in. **Required in production**; empty = nobody |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google OAuth client |
 | `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT` | Microsoft Entra app; `MS_TENANT` = Directory (tenant) ID |

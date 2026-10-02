@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { mountAuth, attachUser, requireAuth, sameOriginWrites } from './auth.js';
+import { mountAuth, attachUser, requireAuth, sameOriginWrites, isApprover } from './auth.js';
 import { initStorage, putFile, getFile, deleteFile, storageMode } from './storage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,10 +42,10 @@ const q = (text, params) => pool.query(text, params);
 const addHistory = (c, rid, step, note, actor) =>
   c.query('INSERT INTO history (request_id, step, note, actor) VALUES ($1,$2,$3,$4)', [rid, step, note, actor]);
 
-async function createRequest({ type, matter, title, requester, fields = {}, step = 3 }, client = pool) {
+async function createRequest({ type, matter, title, requester, requester_email = null, fields = {}, step = 3 }, client = pool) {
   const { rows } = await client.query(
-    'INSERT INTO requests (type,matter,title,requester,step,fields) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
-    [type, matter, title, requester, step, JSON.stringify(fields)]
+    'INSERT INTO requests (type,matter,title,requester,requester_email,step,fields) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+    [type, matter, title, requester, requester_email, step, JSON.stringify(fields)]
   );
   const id = rows[0].id;
   await addHistory(client, id, 1, 'Request form filled out', requester);
@@ -73,6 +73,13 @@ async function initDb() {
 /* ---------- helpers ---------- */
 const withStep = (r) => r && { ...r, step_name: STEPS[r.step - 1] };
 const actorOf = (req) => req.user?.name || 'Unknown';
+
+// Approval rights: approvers can move any step. The requester may only act on the step that
+// is waiting for them (5 = "Waiting for user comment").
+const REQUESTER_STEPS = new Set([5]);
+const isOwner = (r, user) =>
+  !!user && (r.requester_email ? r.requester_email.toLowerCase() === String(user.email || '').toLowerCase() : r.requester === user.name);
+const canAdvance = (r, user) => r.step < STEPS.length && (isApprover(user) || (REQUESTER_STEPS.has(r.step) && isOwner(r, user)));
 const fixName = (n) => Buffer.from(n, 'latin1').toString('utf8'); // multer gives latin1 names
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const ATT_COLS = 'id,filename,size::int AS size,mime,uploaded_by,created_at';
@@ -138,7 +145,7 @@ app.post('/api/requests', upload.array('files', 10), wrap(async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const id = await createRequest({ type, matter, title: title.trim(), requester: actor, fields }, client);
+    const id = await createRequest({ type, matter, title: title.trim(), requester: actor, requester_email: req.user?.email || null, fields }, client);
     await saveFiles(client, id, req.files, actor);
     await client.query('COMMIT');
     const { rows } = await q('SELECT * FROM requests WHERE id=$1', [id]);
@@ -154,13 +161,14 @@ app.get('/api/requests/:id', wrap(async (req, res) => {
   if (!r) return res.status(404).json({ error: 'Not found' });
   const att = await q(`SELECT ${ATT_COLS} FROM attachments WHERE request_id=$1 ORDER BY id`, [r.id]);
   const hist = await q('SELECT step,note,actor,at FROM history WHERE request_id=$1 ORDER BY id', [r.id]);
-  res.json({ ...withStep(r), attachments: att.rows, history: hist.rows.map((h) => ({ ...h, step_name: STEPS[h.step - 1] })) });
+  res.json({ ...withStep(r), can_advance: canAdvance(r, req.user), attachments: att.rows, history: hist.rows.map((h) => ({ ...h, step_name: STEPS[h.step - 1] })) });
 }));
 
 app.post('/api/requests/:id/advance', wrap(async (req, res) => {
   const r = await findRequest(req.params.id);
   if (!r) return res.status(404).json({ error: 'Not found' });
   if (r.step >= STEPS.length) return res.status(400).json({ error: 'Already complete' });
+  if (!canAdvance(r, req.user)) return res.status(403).json({ error: 'You do not have permission to approve this step' });
   const step = r.step + 1;
   const client = await pool.connect();
   try {

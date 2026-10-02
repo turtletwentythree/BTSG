@@ -82,7 +82,10 @@ export default function RequestDetail() {
               </li>
             ))}
           </ol>
-          {r.step < STEPS.length && (
+          {r.step < STEPS.length && !r.can_advance && (
+            <p className="muted">รอผู้มีสิทธิ์อนุมัติดำเนินการขั้นถัดไป: {STEPS[r.step]}</p>
+          )}
+          {r.step < STEPS.length && r.can_advance && (
             <button className="btn btn-primary" disabled={busy}
               onClick={() => run(() => api.advance(id))}>
               Move to next step: {STEPS[r.step]}

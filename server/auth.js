@@ -92,6 +92,17 @@ function startSession(req, res, user) {
   setCookie(req, res, 'lrs_session', sign({ ...user, exp: Date.now() + SESSION_HOURS * 3600e3 }), SESSION_HOURS * 3600);
 }
 
+/* ---------- approval rights ---------- */
+// APPROVER_EMAILS: comma-separated csv of people who may approve / move any request forward.
+// If it is empty, every signed-in user may approve (set it before sharing the link widely).
+const csv = (v) => (v || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+export const approverRestricted = () => csv(process.env.APPROVER_EMAILS).length > 0;
+export const isApprover = (user) => {
+  if (!user) return false;
+  const l = csv(process.env.APPROVER_EMAILS);
+  return l.length === 0 || l.includes(String(user.email || '').toLowerCase());
+};
+
 /* ---------- middleware ---------- */
 export function attachUser(req, _res, next) {
   const s = unsign(cookies(req).lrs_session);
@@ -119,7 +130,7 @@ export function mountAuth(app, { onLogin }) {
 
   app.get('/api/auth/me', (req, res) => {
     res.json({
-      user: req.user,
+      user: req.user && { ...req.user, approver: isApprover(req.user) },
       providers: { google: enabled('google'), microsoft: enabled('microsoft') },
       demo: demoEnabled(),
     });
