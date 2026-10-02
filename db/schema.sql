@@ -37,8 +37,18 @@ CREATE TABLE IF NOT EXISTS history (
 );
 CREATE INDEX IF NOT EXISTS history_request_idx ON history (request_id);
 
+CREATE TABLE IF NOT EXISTS users (
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  email         TEXT NOT NULL UNIQUE,
+  name          TEXT NOT NULL,
+  provider      TEXT NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
 -- The API connects with the database owner / service credentials. Block direct access from
 -- Supabase's public (anon) API so data is only reachable through this server.
 ALTER TABLE requests    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attachments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE history     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users       ENABLE ROW LEVEL SECURITY;

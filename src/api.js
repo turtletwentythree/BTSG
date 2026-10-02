@@ -1,11 +1,6 @@
-let userName = '';
-export const setApiUser = (n) => { userName = n || ''; };
-
 async function call(path, opts = {}) {
-  const res = await fetch('/api' + path, {
-    ...opts,
-    headers: { 'x-user-name': encodeURIComponent(userName), ...(opts.headers || {}) },
-  });
+  const res = await fetch('/api' + path, opts);
+  if (res.status === 401 && location.pathname !== '/login') { location.assign('/login'); throw new Error('Please sign in'); }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Request failed (' + res.status + ')');
   return data;

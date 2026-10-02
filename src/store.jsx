@@ -1,15 +1,32 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { setApiUser } from './api';
 
 const Ctx = createContext(null);
-const load = () => { try { return JSON.parse(localStorage.getItem('lrs_user')); } catch { return null; } };
 
 export function AppProvider({ children }) {
-  const [user, setUser] = useState(load);
-  setApiUser(user?.name);
-  useEffect(() => { try { localStorage.setItem('lrs_user', JSON.stringify(user)); } catch {} }, [user]);
-  const login = (provider) => setUser({ name: 'Thotsaporn Phupha', provider });
-  const logout = () => setUser(null);
-  return <Ctx.Provider value={{ user, login, logout }}>{children}</Ctx.Provider>;
+  const [state, setState] = useState({ loading: true, user: null, providers: {}, demo: false });
+
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then((r) => r.json())
+      .then((d) => setState({ loading: false, user: d.user, providers: d.providers || {}, demo: !!d.demo }))
+      .catch(() => setState((s) => ({ ...s, loading: false })));
+  }, []);
+
+  // provider sign-in leaves the page (OAuth redirect); demo sign-in is a plain API call
+  const login = async (provider) => {
+    if (state.providers[provider]) { window.location.assign('/auth/' + provider); return; }
+    if (!state.demo) throw new Error('Sign-in with ' + provider + ' is not set up yet.');
+    const r = await fetch('/api/auth/demo', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Demo User' }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Sign-in failed');
+    setState((s) => ({ ...s, user: d.user }));
+  };
+  const logout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    setState((s) => ({ ...s, user: null }));
+  };
+  return <Ctx.Provider value={{ ...state, login, logout }}>{children}</Ctx.Provider>;
 }
 export const useApp = () => useContext(Ctx);

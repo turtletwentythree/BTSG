@@ -1,11 +1,24 @@
-import { Navigate, useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { useApp } from '../store.jsx';
 
 export default function Login() {
-  const { user, login } = useApp();
-  const nav = useNavigate();
+  const { user, loading, login } = useApp();
+  const [params] = useSearchParams();
+  const [err, setErr] = useState('');
+  if (loading) return null;
   if (user) return <Navigate to="/all-type-request" replace />;
-  const go = (p) => { login(p); nav('/all-type-request'); };
+  const go = (p) => login(p).catch((e) => setErr(e.message));
+  const ERRORS = {
+    denied: 'This account is not allowed to use this system. Please contact the administrator.',
+    cancelled: 'Sign-in was cancelled.',
+    not_configured: 'This sign-in method is not set up yet.',
+    email: 'Your account has no verified email address.',
+    state: 'The sign-in session expired. Please try again.',
+    token: 'Sign-in could not be verified. Please try again.',
+    failed: 'Sign-in failed. Please try again.',
+  };
+  const message = err || (params.get('error') && (ERRORS[params.get('error')] || ERRORS.failed));
   return (
     <div className="login-page">
       <div className="login-box">
@@ -31,6 +44,7 @@ export default function Login() {
             <span>Login with Microsoft 365</span>
           </button>
         </div>
+        {message && <p className="login-error" role="alert">{message}</p>}
       </div>
     </div>
   );

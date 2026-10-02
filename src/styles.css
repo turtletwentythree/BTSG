@@ -173,3 +173,6 @@ textarea.form-control{resize:vertical}
 .side-dash.active:before{content:'';position:absolute;left:0;top:0;bottom:0;width:6px;background:#3b82f6}
 .side-dash .ri-dashboard-fill{font-size:22px}
 @media(max-width:800px){.dash-grid{grid-template-columns:1fr}.hbar{grid-template-columns:100px 1fr 28px}}
+
+.login-error { margin: 18px auto 0; max-width: 420px; padding: 10px 14px; border-radius: 8px;
+  background: #fdecea; color: #b3261e; font-size: 14px; text-align: center; }

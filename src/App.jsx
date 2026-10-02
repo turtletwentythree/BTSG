@@ -9,7 +9,8 @@ import Dashboard from './pages/Dashboard.jsx';
 import RequestDetail from './pages/RequestDetail.jsx';
 
 function Protected({ children }) {
-  const { user } = useApp();
+  const { user, loading } = useApp();
+  if (loading) return null;
   return user ? children : <Navigate to="/login" replace />;
 }
 

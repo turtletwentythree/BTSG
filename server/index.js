@@ -5,6 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { mountAuth, attachUser, requireAuth, sameOriginWrites } from './auth.js';
 import { initStorage, putFile, getFile, deleteFile, storageMode } from './storage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -64,9 +65,7 @@ async function initDb() {
 
 /* ---------- helpers ---------- */
 const withStep = (r) => r && { ...r, step_name: STEPS[r.step - 1] };
-const actorOf = (req) => {
-  try { return decodeURIComponent(req.get('x-user-name') || '') || 'Unknown'; } catch { return 'Unknown'; }
-};
+const actorOf = (req) => req.user?.name || 'Unknown';
 const fixName = (n) => Buffer.from(n, 'latin1').toString('utf8'); // multer gives latin1 names
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const ATT_COLS = 'id,filename,size::int AS size,mime,uploaded_by,created_at';
@@ -99,9 +98,21 @@ const findRequest = async (idOrNo) => {
 
 /* ---------- api ---------- */
 const app = express();
+app.set('trust proxy', 1);
 app.use(express.json());
+app.use(attachUser);
+app.use(sameOriginWrites);
+mountAuth(app, {
+  onLogin: (u) => q(
+    `INSERT INTO users (email,name,provider,last_login_at) VALUES ($1,$2,$3,now())
+     ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, provider = EXCLUDED.provider, last_login_at = now()`,
+    [u.email, u.name, u.provider]
+  ),
+});
 
 app.get('/api/health', wrap(async (_q, res) => { await q('SELECT 1'); res.json({ ok: true, storage: storageMode }); }));
+
+app.use('/api', requireAuth);
 
 app.get('/api/requests', wrap(async (req, res) => {
   const term = String(req.query.q || '').trim();

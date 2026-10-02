@@ -24,7 +24,7 @@ export default function Layout() {
           <button className="user-btn" onClick={() => setMenu(!menu)}>{user.name}</button>
           {menu && (
             <div className="user-menu">
-              <a href="/login" onClick={(e) => { e.preventDefault(); logout(); nav('/login'); }}>
+              <a href="/login" onClick={(e) => { e.preventDefault(); logout().then(() => nav('/login')); }}>
                 <i className="mdi mdi-logout text-muted me-1" /> Logout
               </a>
             </div>
