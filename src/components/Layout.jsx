@@ -44,7 +44,7 @@ export default function Layout() {
         </button>
         {sub && (
           <div className="side-sub">
-            <NavLink to="/" end className="side-link">Request List (ติดตามสถานะ)</NavLink>
+            <NavLink to="/" end className="side-link">Request List</NavLink>
             <NavLink to="/all-type-request" end className="side-link">All Request</NavLink>
             <NavLink to="/create-requests" className="side-link">Create Request</NavLink>
           </div>
