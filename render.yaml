@@ -13,7 +13,7 @@ services:
       - key: SESSION_SECRET
         generateValue: true
       - key: NODE_VERSION
-        value: 20.18.0
+        value: 22.11.0
       - key: SUPABASE_BUCKET
         value: attachments
       - key: DATABASE_URL
