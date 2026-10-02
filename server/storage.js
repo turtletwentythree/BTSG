@@ -8,17 +8,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BUCKET = process.env.SUPABASE_BUCKET || 'attachments';
 const LOCAL_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
 
-const sb =
-  process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY
-    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
-    : null;
+const clean = (v) => (v || '').replace(/["'\s]/g, '');
+const SB_URL = clean(process.env.SUPABASE_URL);
+const SB_KEY = clean(process.env.SUPABASE_SERVICE_KEY);
+
+const sb = SB_URL && SB_KEY ? createClient(SB_URL, SB_KEY, { auth: { persistSession: false } }) : null;
 
 export const storageMode = sb ? 'supabase' : 'local';
 
 export async function initStorage() {
   if (sb) {
     const { error } = await sb.storage.createBucket(BUCKET, { public: false, fileSizeLimit: 20 * 1024 * 1024 });
-    if (error && !/already exists|duplicate/i.test(error.message)) throw error;
+    if (error && !/already exists|duplicate/i.test(error.message)) {
+      // Do not crash the whole app: log it so the cause is visible, uploads will fail until the key is fixed.
+      console.error('[storage] init failed:', error.message, '- check SUPABASE_SERVICE_KEY (use the legacy service_role key if it is an sb_secret_ key)');
+    }
   } else {
     fs.mkdirSync(LOCAL_DIR, { recursive: true });
   }
