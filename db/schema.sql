@@ -15,6 +15,11 @@ CREATE TABLE IF NOT EXISTS requests (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS requests_no_key ON requests (no);
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS requester_email TEXT;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT 'Turtle23';
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS department TEXT;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS handler_name TEXT;   -- ผู้รับเรื่อง (legal)
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS handler_email TEXT;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS legal_note TEXT;     -- internal note, legal team only
 
 CREATE TABLE IF NOT EXISTS attachments (
   id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

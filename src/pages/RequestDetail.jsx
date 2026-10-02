@@ -43,12 +43,23 @@ export default function RequestDetail() {
         <section className="card-box">
           <h3>รายละเอียดคำขอ (Request details)</h3>
           <dl className="kv">
+            <dt>Company</dt><dd>{r.company || '-'}</dd>
+            <dt>Department</dt><dd>{r.department || '-'}</dd>
             <dt>Requester</dt><dd>{r.requester}</dd>
             <dt>Created</dt><dd>{fmtDate(r.created_at)}</dd>
             {Object.entries(r.fields).map(([k, v]) => (
               <div className="kvrow" key={k}><dt>{fieldLabel(r.matter, k)}</dt><dd>{String(v) || '-'}</dd></div>
             ))}
           </dl>
+        </section>
+
+        <section className="card-box">
+          <h3>ฝ่ายกฎหมาย (Legal)</h3>
+          <dl className="kv">
+            <dt>ผู้รับเรื่อง</dt><dd>{r.handler_name || <span className="muted">ยังไม่มีผู้รับเรื่อง</span>}</dd>
+            {r.legal_note !== undefined && <><dt>บันทึกภายใน</dt><dd>{r.legal_note || '-'}</dd></>}
+          </dl>
+          {r.legal_note !== undefined && <p className="muted small">บันทึกภายในเห็นเฉพาะฝ่ายกฎหมาย</p>}
         </section>
 
         <section className="card-box">

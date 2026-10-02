@@ -96,6 +96,7 @@ function startSession(req, res, user) {
 // APPROVER_EMAILS: comma- or semicolon-separated emails of people who may approve / move any request forward.
 // If it is empty, every signed-in user may approve (set it before sharing the link widely).
 const csv = (v) => (v || '').toLowerCase().split(/[,;\s]+/).filter(Boolean);
+export const approverList = () => csv(process.env.APPROVER_EMAILS);
 export const approverRestricted = () => csv(process.env.APPROVER_EMAILS).length > 0;
 export const isApprover = (user) => {
   if (!user) return false;

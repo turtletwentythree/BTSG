@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-export default function Select({ value, options, onChange, placeholder = 'โปรดเลือก...', disabled }) {
+export default function Select({ value, options, onChange, placeholder = 'โปรดเลือก...', disabled, labelOf = (o) => o }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -11,7 +11,7 @@ export default function Select({ value, options, onChange, placeholder = 'โป
   return (
     <div className={'rs' + (open ? ' focus' : '') + (disabled ? ' disabled' : '')} ref={ref}>
       <div className="rs-control" onClick={() => !disabled && setOpen(!open)}>
-        <span className={value ? 'rs-value' : 'rs-placeholder'}>{value || placeholder}</span>
+        <span className={value ? 'rs-value' : 'rs-placeholder'}>{value ? labelOf(value) : placeholder}</span>
         <span className="rs-icons">
           {value && !disabled && (
             <i className="mdi mdi-close rs-clear" onClick={(e) => { e.stopPropagation(); onChange(''); }} />
@@ -25,7 +25,7 @@ export default function Select({ value, options, onChange, placeholder = 'โป
           {options.length === 0 && <div className="rs-empty">No options</div>}
           {options.map((o) => (
             <div key={o} className={'rs-option' + (o === value ? ' sel' : '')}
-              onClick={() => { onChange(o); setOpen(false); }}>{o}</div>
+              onClick={() => { onChange(o); setOpen(false); }}>{labelOf(o)}</div>
           ))}
         </div>
       )}

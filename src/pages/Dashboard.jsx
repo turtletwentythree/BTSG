@@ -45,9 +45,13 @@ function Columns({ data, labelKey, color = '#0d6efd' }) {
 export default function Dashboard() {
   const [s, setS] = useState(null);
   const [error, setError] = useState('');
-  useEffect(() => { api.stats().then(setS).catch((e) => setError(e.message)); }, []);
+  const [flt, setFlt] = useState({ company: '', department: '', requester: '', handler: '' });
+  const [opts, setOpts] = useState(null);
+  useEffect(() => {
+    api.stats(flt).then((d) => { setS(d); setOpts((o) => o || d.options); }).catch((e) => setError(e.message));
+  }, [flt]);
   if (error) return <div className="page"><div className="err big">{error}</div></div>;
-  if (!s) return <div className="page">Loading...</div>;
+  if (!s || !opts) return <div className="page">Loading...</div>;
   const pct = s.total ? Math.round((s.completed / s.total) * 100) : 0;
 
   return (
@@ -61,6 +65,17 @@ export default function Dashboard() {
       </div>
       <hr className="atr-hr" />
 
+      <div className="filters">
+        {[['company', 'Company'], ['department', 'Department'], ['requester', 'Requester (ชื่อคนขอ)'], ['handler', 'Handler (ผู้รับเรื่อง)']].map(([k, label]) => (
+          <label key={k}>{label}
+            <select value={flt[k]} onChange={(e) => setFlt({ ...flt, [k]: e.target.value })}>
+              <option value="">ทั้งหมด</option>{opts[k].map((o) => <option key={o}>{o}</option>)}
+            </select>
+          </label>
+        ))}
+        {Object.values(flt).some(Boolean) && <button className="btn btn-outline" onClick={() => setFlt({ company: '', department: '', requester: '', handler: '' })}>ล้างตัวกรอง</button>}
+      </div>
+
       <div className="kpis">
         <Kpi label="Total requests" value={s.total} color="#0d6efd" />
         <Kpi label="In progress" value={s.inProgress} color="#ff974a" />
@@ -73,6 +88,22 @@ export default function Dashboard() {
           <h3>Requests by step</h3>
           <Columns data={s.byStep.map((d) => ({ ...d, label: d.step }))} labelKey="label" />
           <p className="muted small">1 Fill out · 2 Submitting · 3 Waiting acceptance · 4 Reviewing · 5 Waiting comment · 6 User approved · 7 Finalizing · 8 Final approval · 9 Signing · 10 Complete</p>
+        </section>
+        <section className="card-box">
+          <h3>By company</h3>
+          <HBars data={s.byCompany} color="#1e8e4a" />
+        </section>
+        <section className="card-box">
+          <h3>By department</h3>
+          <HBars data={s.byDepartment} color="#ff974a" />
+        </section>
+        <section className="card-box">
+          <h3>By requester</h3>
+          <HBars data={s.byRequester} color="#0778ff" />
+        </section>
+        <section className="card-box">
+          <h3>By legal handler (ผู้รับเรื่อง)</h3>
+          <HBars data={s.byHandler} color="#c0392b" />
         </section>
         <section className="card-box">
           <h3>By type of request</h3>

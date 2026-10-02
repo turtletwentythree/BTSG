@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { mountAuth, attachUser, requireAuth, sameOriginWrites, isApprover } from './auth.js';
+import { mountAuth, attachUser, requireAuth, sameOriginWrites, isApprover, approverList } from './auth.js';
 import { initStorage, putFile, getFile, deleteFile, storageMode } from './storage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,6 +23,11 @@ if (!process.env.DATABASE_URL) {
   console.error('DATABASE_URL is not set. Copy .env.example to .env and fill it in.');
   process.exit(1);
 }
+
+// Companies / departments offered in the forms. Override with COMPANIES / DEPARTMENTS (comma or ; separated).
+const listEnv = (v, d) => { const l = (v || '').split(/[,;\n]+/).map((x) => x.trim()).filter(Boolean); return l.length ? l : d; };
+const COMPANIES = listEnv(process.env.COMPANIES, ['Turtle23']);
+const DEPARTMENTS = listEnv(process.env.DEPARTMENTS, []);
 
 const STEPS = [
   'Fill out request form', 'Submitting request', 'Waiting for acceptance', 'Reviewing',
@@ -42,10 +47,10 @@ const q = (text, params) => pool.query(text, params);
 const addHistory = (c, rid, step, note, actor) =>
   c.query('INSERT INTO history (request_id, step, note, actor) VALUES ($1,$2,$3,$4)', [rid, step, note, actor]);
 
-async function createRequest({ type, matter, title, requester, requester_email = null, fields = {}, step = 3 }, client = pool) {
+async function createRequest({ type, matter, title, requester, requester_email = null, company = COMPANIES[0], department = null, fields = {}, step = 3 }, client = pool) {
   const { rows } = await client.query(
-    'INSERT INTO requests (type,matter,title,requester,requester_email,step,fields) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
-    [type, matter, title, requester, requester_email, step, JSON.stringify(fields)]
+    'INSERT INTO requests (type,matter,title,requester,requester_email,company,department,step,fields) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',
+    [type, matter, title, requester, requester_email, company, department, step, JSON.stringify(fields)]
   );
   const id = rows[0].id;
   await addHistory(client, id, 1, 'Request form filled out', requester);
@@ -73,6 +78,9 @@ async function initDb() {
 /* ---------- helpers ---------- */
 const withStep = (r) => r && { ...r, step_name: STEPS[r.step - 1] };
 const actorOf = (req) => req.user?.name || 'Unknown';
+// legal_note is internal: only the legal team (approvers) may see it
+const out = (r, req) => { const o = withStep(r); if (!isApprover(req.user)) delete o.legal_note; return o; };
+const clip = (v, n) => (v == null ? null : String(v).trim().slice(0, n) || null);
 
 // Approval rights: approvers can move any step. The requester may only act on the step that
 // is waiting for them (5 = "Waiting for user comment").
@@ -134,23 +142,25 @@ app.get('/api/requests', wrap(async (req, res) => {
   const { rows } = term
     ? await q(`SELECT * FROM requests WHERE (no || ' ' || title || ' ' || type || ' ' || matter) ILIKE $1 ORDER BY id DESC`, [`%${term}%`])
     : await q('SELECT * FROM requests ORDER BY id DESC');
-  res.json(rows.map(withStep));
+  res.json(rows.map((r) => out(r, req)));
 }));
 
 app.post('/api/requests', upload.array('files', 10), wrap(async (req, res) => {
   const actor = actorOf(req);
   const { type, matter, title } = req.body;
+  const company = COMPANIES.includes(req.body.company) ? req.body.company : COMPANIES[0];
+  const department = clip(req.body.department, 100);
   if (!type || !matter || !String(title || '').trim()) return res.status(400).json({ error: 'type, matter and title are required' });
   let fields = {};
   try { fields = JSON.parse(req.body.fields || '{}'); } catch {}
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const id = await createRequest({ type, matter, title: title.trim(), requester: actor, requester_email: req.user?.email || null, fields }, client);
+    const id = await createRequest({ type, matter, title: title.trim(), requester: actor, requester_email: req.user?.email || null, company, department, fields }, client);
     await saveFiles(client, id, req.files, actor);
     await client.query('COMMIT');
     const { rows } = await q('SELECT * FROM requests WHERE id=$1', [id]);
-    res.status(201).json(withStep(rows[0]));
+    res.status(201).json(out(rows[0], req));
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     throw e;
@@ -162,7 +172,7 @@ app.get('/api/requests/:id', wrap(async (req, res) => {
   if (!r) return res.status(404).json({ error: 'Not found' });
   const att = await q(`SELECT ${ATT_COLS} FROM attachments WHERE request_id=$1 ORDER BY id`, [r.id]);
   const hist = await q('SELECT step,note,actor,at FROM history WHERE request_id=$1 ORDER BY id', [r.id]);
-  res.json({ ...withStep(r), can_advance: canAdvance(r, req.user), can_edit: canEdit(r, req.user), attachments: att.rows, history: hist.rows.map((h) => ({ ...h, step_name: STEPS[h.step - 1] })) });
+  res.json({ ...out(r, req), can_advance: canAdvance(r, req.user), can_edit: canEdit(r, req.user), attachments: att.rows, history: hist.rows.map((h) => ({ ...h, step_name: STEPS[h.step - 1] })) });
 }));
 
 app.patch('/api/requests/:id', wrap(async (req, res) => {
@@ -180,18 +190,36 @@ app.patch('/api/requests/:id', wrap(async (req, res) => {
   }
   const changed = [];
   if (title !== r.title) changed.push('title');
+  const company = req.body?.company !== undefined && COMPANIES.includes(req.body.company) ? req.body.company : r.company;
+  const department = req.body?.department !== undefined ? clip(req.body.department, 100) : r.department;
+  if (company !== r.company) changed.push('company');
+  if ((department || '') !== (r.department || '')) changed.push('department');
+  // legal-team-only data
+  let handler_name = r.handler_name, handler_email = r.handler_email, legal_note = r.legal_note;
+  if (isApprover(req.user)) {
+    if (req.body?.handler_email !== undefined) {
+      const he = clip(req.body.handler_email, 200);
+      const hn = clip(req.body.handler_name, 200);
+      handler_email = he ? he.toLowerCase() : null;
+      handler_name = he ? (hn || he) : null;
+    }
+    if (req.body?.legal_note !== undefined) legal_note = clip(req.body.legal_note, 5000);
+    if ((handler_email || '') !== (r.handler_email || '')) changed.push('handler');
+    if ((legal_note || '') !== (r.legal_note || '')) changed.push('legal_note');
+  }
   for (const k of new Set([...Object.keys(fields), ...Object.keys(r.fields || {})])) {
     if (String(fields[k] ?? '') !== String((r.fields || {})[k] ?? '')) changed.push(k);
   }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('UPDATE requests SET title=$1, fields=$2, updated_at=now() WHERE id=$3', [title, JSON.stringify(fields), r.id]);
+    await client.query('UPDATE requests SET title=$1, fields=$2, company=$3, department=$4, handler_name=$5, handler_email=$6, legal_note=$7, updated_at=now() WHERE id=$8',
+      [title, JSON.stringify(fields), company, department, handler_name, handler_email, legal_note, r.id]);
     if (changed.length) await addHistory(client, r.id, r.step, `Request details edited (${changed.join(', ')})`, actorOf(req));
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
   const { rows } = await q('SELECT * FROM requests WHERE id=$1', [r.id]);
-  res.json(withStep(rows[0]));
+  res.json(out(rows[0], req));
 }));
 
 app.post('/api/requests/:id/advance', wrap(async (req, res) => {
@@ -204,11 +232,15 @@ app.post('/api/requests/:id/advance', wrap(async (req, res) => {
   try {
     await client.query('BEGIN');
     await client.query('UPDATE requests SET step=$1, updated_at=now() WHERE id=$2', [step, r.id]);
+    // the legal person who accepts the request becomes its handler (ผู้รับเรื่อง)
+    if (r.step === 3 && !r.handler_email && isApprover(req.user)) {
+      await client.query('UPDATE requests SET handler_name=$1, handler_email=$2 WHERE id=$3', [actorOf(req), req.user.email || null, r.id]);
+    }
     await addHistory(client, r.id, step, req.body?.note || STEPS[step - 1], actorOf(req));
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
   const { rows } = await q('SELECT * FROM requests WHERE id=$1', [r.id]);
-  res.json(withStep(rows[0]));
+  res.json(out(rows[0], req));
 }));
 
 app.post('/api/requests/:id/attachments', upload.array('files', 10), wrap(async (req, res) => {
@@ -239,8 +271,24 @@ app.delete('/api/attachments/:id', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.get('/api/stats', wrap(async (_req, res) => {
-  const { rows } = await q('SELECT * FROM requests');
+app.get('/api/config', wrap(async (req, res) => {
+  const { rows: depts } = await q(`SELECT DISTINCT department FROM requests WHERE department IS NOT NULL ORDER BY 1`);
+  const departments = [...new Set([...DEPARTMENTS, ...depts.map((d) => d.department)])];
+  // legal team = approvers; names come from people who have signed in at least once
+  const emails = approverList();
+  const { rows: us } = emails.length ? await q('SELECT email, name FROM users WHERE lower(email) = ANY($1)', [emails]) : { rows: [] };
+  const nameOf = Object.fromEntries(us.map((u) => [u.email.toLowerCase(), u.name]));
+  const legalTeam = emails.map((e) => ({ email: e, name: nameOf[e] || e }));
+  res.json({ companies: COMPANIES, departments, departmentsFixed: DEPARTMENTS.length > 0, legalTeam, approver: isApprover(req.user) });
+}));
+
+app.get('/api/stats', wrap(async (req, res) => {
+  const { rows: all } = await q('SELECT * FROM requests');
+  const f = req.query;
+  const rows = all.filter((r) =>
+    (!f.company || r.company === f.company) && (!f.department || (r.department || '') === f.department) &&
+    (!f.requester || r.requester === f.requester) && (!f.handler || (r.handler_name || '') === f.handler));
+  const uniq = (key) => [...new Set(all.map((r) => r[key]).filter(Boolean))].sort();
   const now = Date.now();
   const days = (a, b) => (new Date(b) - new Date(a)) / 86400000;
   const count = (key) => {
@@ -267,6 +315,11 @@ app.get('/api/stats', wrap(async (_req, res) => {
     inProgress: rows.length - done.length,
     avgDaysToComplete: done.length ? +(done.reduce((t, r) => t + days(r.created_at, r.updated_at), 0) / done.length).toFixed(1) : null,
     byType: count('type'), byMatter: count('matter'), byStep, byMonth: months, stalled,
+    byCompany: count('company'),
+    byDepartment: count('department').map((d) => ({ ...d, name: d.name === 'null' || d.name === 'undefined' ? '(ไม่ระบุ)' : d.name })),
+    byRequester: count('requester').slice(0, 15),
+    byHandler: count('handler_name').map((d) => ({ ...d, name: d.name === 'null' || d.name === 'undefined' ? '(ยังไม่มีผู้รับเรื่อง)' : d.name })),
+    options: { company: uniq('company'), department: uniq('department'), requester: uniq('requester'), handler: uniq('handler_name') },
   });
 }));
 

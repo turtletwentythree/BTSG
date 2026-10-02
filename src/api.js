@@ -7,7 +7,11 @@ async function call(path, opts = {}) {
 }
 export const api = {
   list: (q = '') => call('/requests' + (q ? '?q=' + encodeURIComponent(q) : '')),
-  stats: () => call('/stats'),
+  stats: (params = {}) => {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
+    return call('/stats' + (qs ? '?' + qs : ''));
+  },
+  config: () => call('/config'),
   get: (id) => call('/requests/' + id),
   create: (form) => call('/requests', { method: 'POST', body: form }),
   update: (id, body) => call('/requests/' + id, {

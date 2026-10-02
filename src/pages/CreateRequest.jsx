@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Select from '../components/Select.jsx';
 import Stepper from '../components/Stepper.jsx';
 import FileDrop from '../components/FileDrop.jsx';
 import { MATTER_FIELDS, REQUEST_TYPES } from '../data/requestTypes';
 import Field from '../components/Field.jsx';
+import OrgFields from '../components/OrgFields.jsx';
 import { api } from '../api';
 
 
@@ -20,6 +21,10 @@ export default function CreateRequest() {
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [cfg, setCfg] = useState(null);
+  const [company, setCompany] = useState('');
+  const [department, setDepartment] = useState('');
+  useEffect(() => { api.config().then((c) => { setCfg(c); setCompany(c.companies[0] || ''); }).catch(() => {}); }, []);
 
   const matters = REQUEST_TYPES.find((t) => t.name === type)?.matters.map((m) => m.name) || [];
   const fields = MATTER_FIELDS[matter] || [];
@@ -37,6 +42,7 @@ export default function CreateRequest() {
     try {
       const form = new FormData();
       form.append('type', type); form.append('matter', matter); form.append('title', title.trim());
+      form.append('company', company); form.append('department', department);
       form.append('fields', JSON.stringify(values));
       files.forEach((f) => form.append('files', f));
       const r = await api.create(form);
@@ -66,6 +72,7 @@ export default function CreateRequest() {
             <input className="form-control" value={title} onChange={(e) => setTitle(e.target.value)} />
             {tried && !title.trim() && <div className="err">กรุณากรอกข้อมูลนี้ (Required)</div>}
           </div>
+          {cfg && <OrgFields cfg={cfg} company={company} department={department} onCompany={setCompany} onDepartment={setDepartment} />}
           {fields.map((f) => (
             <Field key={f.key} f={f} value={values[f.key] ?? ''} onChange={(v) => setVal(f.key, v)}
               error={tried && f.required && !String(values[f.key] ?? '').trim()} />

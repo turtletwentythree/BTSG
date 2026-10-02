@@ -186,3 +186,7 @@ textarea.form-control{resize:vertical}
 .filters select,.filters input[type=date]{font:inherit;font-size:13px;color:#212529;padding:5px 8px;border:1px solid #ced4da;border-radius:6px;background:#fff;min-width:130px;max-width:200px}
 .filters .btn{padding:4px 12px;font-size:13px}
 .filters .count{font-size:12px;margin-left:auto;align-self:center}
+
+.legal-box{margin:6px 0 20px;padding:14px 16px;border:1px dashed #b9c4d6;border-radius:12px;background:#f8faff}
+.legal-box h3{margin:0 0 12px;font-size:14px;color:var(--ink)}
+.dash .filters{margin-bottom:14px}
