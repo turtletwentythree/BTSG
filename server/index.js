@@ -12,6 +12,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 const PORT = process.env.PORT || 3001;
 
+// Tolerate common paste mistakes: quotes/whitespace/line breaks, and the REGION placeholder.
+if (process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = process.env.DATABASE_URL.replace(/["'\s]/g, '').replace(
+    /aws-0-REGION\./i,
+    `aws-0-${process.env.SUPABASE_REGION || 'ap-southeast-1'}.`,
+  );
+}
 if (!process.env.DATABASE_URL) {
   console.error('DATABASE_URL is not set. Copy .env.example to .env and fill it in.');
   process.exit(1);
