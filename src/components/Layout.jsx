@@ -19,7 +19,7 @@ export default function Layout() {
         <button className="btn-icon hamburger" onClick={() => setOpen(!open)} aria-label="menu">
           <i className="mdi mdi-menu" />
         </button>
-        <span className="topbar-title">{TITLES[pathname] || 'Legal Request System'}</span>
+        <span className="topbar-title" style={{ cursor: 'pointer' }} onClick={() => nav('/')}>{TITLES[pathname] || 'Legal Request System'}</span>
         <div className="user-wrap">
           <button className="user-btn" onClick={() => setMenu(!menu)}>{user.name}</button>
           {menu && (
@@ -44,6 +44,7 @@ export default function Layout() {
         </button>
         {sub && (
           <div className="side-sub">
+            <NavLink to="/" end className="side-link">Request List (ติดตามสถานะ)</NavLink>
             <NavLink to="/all-type-request" end className="side-link">All Request</NavLink>
             <NavLink to="/create-requests" className="side-link">Create Request</NavLink>
           </div>
