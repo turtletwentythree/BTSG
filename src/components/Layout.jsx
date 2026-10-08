@@ -19,6 +19,7 @@ export default function Layout() {
         <button className="btn-icon hamburger" onClick={() => setOpen(!open)} aria-label="menu">
           <i className="mdi mdi-menu" />
         </button>
+        <img src="/logo.png" alt="Turtle23" className="topbar-logo" onClick={() => nav('/')} />
         <span className="topbar-title" style={{ cursor: 'pointer' }} onClick={() => nav('/')}>{TITLES[pathname] || 'Legal Request System'}</span>
         <div className="user-wrap">
           <button className="user-btn" onClick={() => setMenu(!menu)}>{user.name}</button>

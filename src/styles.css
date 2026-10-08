@@ -190,3 +190,7 @@ textarea.form-control{resize:vertical}
 .legal-box{margin:6px 0 20px;padding:14px 16px;border:1px dashed #b9c4d6;border-radius:12px;background:#f8faff}
 .legal-box h3{margin:0 0 12px;font-size:14px;color:var(--ink)}
 .dash .filters{margin-bottom:14px}
+
+.topbar-logo{height:38px;width:auto;cursor:pointer;flex:none;margin:0 6px}
+.login-logo{display:block;height:96px;width:auto;margin:0 auto 12px}
+.login-box{text-align:center}

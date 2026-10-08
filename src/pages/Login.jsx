@@ -22,6 +22,7 @@ export default function Login() {
   return (
     <div className="login-page">
       <div className="login-box">
+        <img src="/logo.png" alt="Turtle23" className="login-logo" />
         <h1>Welcome to Legal Request Form</h1>
         <h1>Log in to your account</h1>
         <div className="login-btns">
