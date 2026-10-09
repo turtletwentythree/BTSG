@@ -23,6 +23,7 @@ export default function App() {
       <Route element={<Protected><Layout /></Protected>}>
         <Route path="/" element={<AllRequest />} />
         <Route path="/all-type-request" element={<AllTypeRequest />} />
+        <Route path="/summary-request/:code" element={<RequestDetail />} />
         <Route path="/requests/:id" element={<RequestDetail />} />
         <Route path="/requests/:id/edit" element={<EditRequest />} />
         <Route path="/request-form/:code" element={<TrackingList />} />
