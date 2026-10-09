@@ -36,7 +36,7 @@ export default function EditRequest() {
 
   const known = new Set((FORMS[r.matter] || []).map((f) => f.key));
   const extra = Object.keys(values).filter((k) => !known.has(k) && !k.endsWith('_other'));
-  const setVal = (k, v) => setValues({ ...values, [k]: v });
+  const setVal = (k, v) => setValues((p) => ({ ...p, [k]: v }));
 
   const save = async () => {
     setTried(true);

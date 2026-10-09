@@ -29,6 +29,30 @@ const legalAction = [
   { key: 'legal_action', label: 'ต้องการให้ฝ่ายกฎหมายดำเนินการ (Request Legal Team to)', type: 'select', required: true,
     options: ['ตรวจสอบสัญญา/บันทึกข้อตกลงตามแนบ (Review draft agreement as attached)', 'ให้ฝ่ายกฎหมายจัดทำสัญญา/บันทึกข้อตกลง (Draft agreement)'] },
 ];
+const DAY = 'Day-to-day Work / งานดำเนินงานทั่วไป', CONFI = 'Confidential / สัญญาลับ';
+const CONTRACT_TREE = {
+  [DAY]: {
+    'Lease & Rental Agreement / สัญญาเช่าและให้เช่า': ['Lease Agreement / สัญญาเช่า', 'Sub Lease Agreement / สัญญาเช่าช่วง', 'Lease Asset Agreement / สัญญาเช่าทรัพย์สิน', 'Rental Agreement / สัญญาเช่าทั่วไป'],
+    'Service Agreement / สัญญาให้บริการ': [],
+    'Amendment Agreement / สัญญาแก้ไขเพิ่มเติม': [],
+    'Sale and Purchase Agreement / สัญญาซื้อขาย': [],
+    'Service Provider Agreement / สัญญาจ้าง': [],
+    'Commercial Agreement / สัญญาทางธุรกิจ': ['Consultancy Agreement / สัญญาให้คำปรึกษา', 'Confidentiality Agreement / สัญญารักษาความลับ'],
+    'Others / อื่น ๆ': [],
+  },
+  [CONFI]: {
+    'Preliminary Agreement / ข้อตกลงเบื้องต้น': ['Memorandum of Understanding / บันทึกความเข้าใจ', 'Term Sheet / เอกสารสรุปเงื่อนไขเบื้องต้น'],
+    'Commercial Agreement / สัญญาทางธุรกิจ': ['Consultancy Agreement / สัญญาให้คำปรึกษา', 'Confidentiality Agreement / สัญญารักษาความลับ', 'Management Agreement / สัญญาบริหารจัดการ', 'Loan Agreement / สัญญาเงินกู้', 'Mergers and Acquisitions Agreement / สัญญาการควบรวมและซื้อกิจการ', 'Shareholders’ Agreement / สัญญาระหว่างผู้ถือหุ้น'],
+    'Others / อื่น ๆ': ['Others / อื่น ๆ'],
+  },
+};
+const subTypes = (v) => CONTRACT_TREE[v.contract_class]?.[v.contract_type] || [];
+const contractClass = [
+  { key: 'contract_class', label: 'ประเภทสัญญา (Contract Classification)', type: 'select', required: true, options: Object.keys(CONTRACT_TREE), resets: ['contract_type', 'contract_sub'] },
+  { key: 'contract_type', label: 'ชนิดของสัญญา (Type of Contract)', type: 'select', required: true, show: (v) => !!v.contract_class,
+    options: (v) => Object.keys(CONTRACT_TREE[v.contract_class] || {}), resets: ['contract_sub'] },
+  { key: 'contract_sub', label: 'ชนิดย่อยของสัญญา (Sub Type of Contract)', type: 'select', required: true, show: (v) => subTypes(v).length > 0, options: subTypes },
+];
 const common = [
   { key: 'language', label: 'ภาษา (Language)', type: 'select', options: LANGS, required: true },
   { key: 'confidentiality', label: 'ระดับชั้นความลับ (Confidentiality Level)', type: 'select', options: CONF, required: true },
@@ -82,6 +106,7 @@ export const FORMS = {
     ...approval,
   ],
   'Service Agreement': [
+    ...contractClass,
     { key: 'project_name', label: 'ชื่อโครงการ (Project Name)', type: 'text', placeholder: 'ระบุชื่อโครงการ(ถ้ามี)' },
     ...legalAction,
     { key: 'f_main', label: 'Attachment File', type: 'file' },

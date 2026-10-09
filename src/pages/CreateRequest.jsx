@@ -26,7 +26,7 @@ export default function CreateRequest() {
   useEffect(() => { api.config().then((c) => { setCfg(c); setCompany(c.companies[0] || ''); }).catch(() => {}); }, []);
 
   const matters = REQUEST_TYPES.find((t) => t.name === type)?.matters.map((m) => m.name) || [];
-  const setVal = (k, v) => setValues({ ...values, [k]: v });
+  const setVal = (k, v) => setValues((p) => ({ ...p, [k]: v }));
 
   const go = async (draft) => {
     setTried(true);

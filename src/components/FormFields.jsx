@@ -65,14 +65,14 @@ export default function FormFields({ matter, values, set, cfg, tried, fileMap, s
   return fields.map((f, i) => {
     if (f.type === 'heading') return <h3 key={'h' + i} className="form-heading">{f.label}</h3>;
     if (f.type === 'file' && !setFileMap) return null;
-    const options = f.options === '@companies' ? cfg.companies : f.options;
+    const options = f.options === '@companies' ? cfg.companies : typeof f.options === 'function' ? f.options(values) : f.options;
     const v = values[f.key] ?? '';
     return (
       <div className="field" key={f.key}>
         <label>{f.label}{f.required && <span className="req">*</span>}</label>
         {f.type === 'select' && (
           <>
-            <Select value={v} options={f.others ? [...options, OTHERS] : options} onChange={(x) => set(f.key, x)} placeholder={f.placeholder || 'โปรดเลือก...'} />
+            <Select value={v} options={f.others ? [...options, OTHERS] : options} onChange={(x) => { set(f.key, x); (f.resets || []).forEach((k) => set(k, '')); }} placeholder={f.placeholder || 'โปรดเลือก...'} />
             {f.others && v === OTHERS && (
               <input className="form-control gap" placeholder="ระบุ (Others)" value={values[f.key + '_other'] ?? ''} onChange={(e) => set(f.key + '_other', e.target.value)} />
             )}
