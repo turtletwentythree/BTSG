@@ -53,6 +53,98 @@ const contractClass = [
     options: (v) => Object.keys(CONTRACT_TREE[v.contract_class] || {}), resets: ['contract_sub'] },
   { key: 'contract_sub', label: 'ชนิดย่อยของสัญญา (Sub Type of Contract)', type: 'select', required: true, show: (v) => subTypes(v).length > 0, options: subTypes },
 ];
+
+// Extra questions per contract type / sub type (my own design: the reference's contents are not readable).
+const en = (x) => String(x || '').split(' / ')[0];
+const T = (key, label, ph, extra = {}) => ({ key, label, type: 'text', placeholder: ph, ...extra });
+const A = (key, label, ph, extra = {}) => ({ key, label, type: 'textarea', placeholder: ph, ...extra });
+const TYPE_GROUPS = [
+  { title: 'รายละเอียดสัญญาเช่า (Lease Details)', test: (t) => t === 'Lease & Rental Agreement', fields: [
+    A('x_property', 'ทรัพย์สินที่เช่า / สถานที่ตั้ง (Leased Property & Location)', 'ระบุรายละเอียดทรัพย์สินและที่ตั้ง', { required: true }),
+    T('x_area', 'พื้นที่เช่า (Area, sq.m.)', 'เช่น 120 ตร.ม.'),
+    T('x_rent', 'ค่าเช่า (Rent per month/year)', 'ระบุจำนวนเงินและรอบการชำระ', { required: true }),
+    T('x_deposit', 'เงินประกัน (Security Deposit)', 'ระบุจำนวนเงินประกัน'),
+    T('x_other_charges', 'ค่าใช้จ่ายอื่น เช่น ค่าน้ำ ไฟ ส่วนกลาง (Other Charges)', 'ระบุ'),
+  ] },
+  { title: 'รายละเอียดสัญญาเช่าช่วง (Sub-lease)', test: (t, s) => s === 'Sub Lease Agreement', fields: [
+    T('x_head_lessor', 'ผู้ให้เช่าตามสัญญาเช่าหลัก (Head Lessor)', 'ระบุชื่อ'),
+    T('x_head_lease_ref', 'สัญญาเช่าหลักเลขที่/ลงวันที่ (Head Lease Ref.)', 'ระบุเลขที่/วันที่'),
+  ] },
+  { title: 'รายละเอียดทรัพย์สินที่เช่า (Leased Asset)', test: (t, s) => s === 'Lease Asset Agreement', fields: [
+    T('x_asset_serial', 'หมายเลขเครื่อง/ทะเบียนทรัพย์สิน (Serial / Registration No.)', 'ระบุ'),
+    T('x_asset_qty', 'จำนวน (Quantity)', 'ระบุจำนวน'),
+  ] },
+  { title: 'รายละเอียดสัญญาแก้ไขเพิ่มเติม (Amendment Details)', test: (t) => t === 'Amendment Agreement', fields: [
+    T('x_orig_title', 'ชื่อสัญญาเดิม (Original Agreement)', 'ระบุชื่อสัญญาเดิม', { required: true }),
+    { key: 'x_orig_date', label: 'วันที่ทำสัญญาเดิม (Original Agreement Date)', type: 'date' },
+    A('x_amend_clauses', 'ข้อที่ต้องการแก้ไข (Clauses to Amend)', 'ระบุข้อและสิ่งที่ต้องการแก้ไข', { required: true }),
+    A('x_amend_reason', 'เหตุผลในการแก้ไข (Reason)', 'ระบุเหตุผล'),
+  ] },
+  { title: 'รายละเอียดการซื้อขาย (Sale & Purchase Details)', test: (t) => t === 'Sale and Purchase Agreement', fields: [
+    A('x_goods', 'สินค้า/ทรัพย์สินที่ซื้อขาย (Goods / Assets)', 'ระบุรายการ', { required: true }),
+    T('x_qty', 'จำนวน (Quantity)', 'ระบุจำนวน'),
+    T('x_price', 'ราคา (Price)', 'ระบุราคาและสกุลเงิน', { required: true }),
+    T('x_delivery', 'กำหนด/สถานที่ส่งมอบ (Delivery Date & Place)', 'ระบุ'),
+    T('x_warranty', 'การรับประกัน (Warranty)', 'ระบุระยะเวลาและเงื่อนไข'),
+  ] },
+  { title: 'รายละเอียดสัญญาจ้าง (Service Provider Details)', test: (t) => t === 'Service Provider Agreement', fields: [
+    A('x_work', 'งานที่จ้าง (Work to be Performed)', 'ระบุรายละเอียดงาน', { required: true }),
+    T('x_headcount', 'จำนวนบุคลากร (Number of Personnel)', 'ระบุจำนวน'),
+    T('x_qualification', 'คุณสมบัติของผู้รับจ้าง (Qualifications)', 'ระบุ'),
+  ] },
+  { title: 'รายละเอียดสัญญาให้คำปรึกษา (Consultancy Details)', test: (t, s) => s === 'Consultancy Agreement', fields: [
+    A('x_topics', 'หัวข้อ/ขอบเขตที่ปรึกษา (Consulting Topics)', 'ระบุ', { required: true }),
+    T('x_deliverables', 'สิ่งที่ต้องส่งมอบ (Deliverables)', 'เช่น รายงาน คำแนะนำ'),
+    T('x_consult_fee', 'ค่าที่ปรึกษา (Consulting Fee)', 'ระบุจำนวนเงินและเงื่อนไข'),
+  ] },
+  { title: 'รายละเอียดสัญญารักษาความลับ (Confidentiality Details)', test: (t, s) => s === 'Confidentiality Agreement', fields: [
+    { key: 'x_nda_dir', label: 'รูปแบบการเปิดเผย (Disclosure)', type: 'radio', options: ['ฝ่ายเดียว (One-way)', 'ทั้งสองฝ่าย (Mutual)'], required: true },
+    A('x_nda_info', 'ข้อมูลที่เป็นความลับ (Confidential Information)', 'ระบุประเภทข้อมูล', { required: true }),
+    T('x_nda_purpose', 'วัตถุประสงค์ในการเปิดเผย (Purpose)', 'ระบุ'),
+    T('x_nda_period', 'ระยะเวลาผูกพันการรักษาความลับ (Confidentiality Period)', 'เช่น 3 ปี'),
+  ] },
+  { title: 'รายละเอียดบันทึกความเข้าใจ (MOU Details)', test: (t, s) => s === 'Memorandum of Understanding', fields: [
+    A('x_mou_obj', 'วัตถุประสงค์ความร่วมมือ (Objectives)', 'ระบุ', { required: true }),
+    { key: 'x_mou_binding', label: 'ผลผูกพัน (Binding Effect)', type: 'radio', options: ['ไม่มีผลผูกพัน (Non-binding)', 'ผูกพันบางส่วน (Partly binding)', 'ผูกพัน (Binding)'] },
+    T('x_mou_duration', 'ระยะเวลา (Duration)', 'ระบุ'),
+  ] },
+  { title: 'รายละเอียด Term Sheet', test: (t, s) => s === 'Term Sheet', fields: [
+    A('x_ts_summary', 'สรุปธุรกรรม (Transaction Summary)', 'ระบุ', { required: true }),
+    A('x_ts_terms', 'เงื่อนไขทางการค้าที่สำคัญ (Key Commercial Terms)', 'ระบุ'),
+    T('x_ts_excl', 'ระยะเวลา Exclusivity (ถ้ามี)', 'ระบุ'),
+  ] },
+  { title: 'รายละเอียดสัญญาบริหารจัดการ (Management Details)', test: (t, s) => s === 'Management Agreement', fields: [
+    A('x_mg_subject', 'กิจการ/ทรัพย์สินที่บริหาร (Managed Business / Asset)', 'ระบุ', { required: true }),
+    T('x_mg_fee', 'ค่าบริหารจัดการ (Management Fee)', 'ระบุ'),
+    A('x_mg_authority', 'ขอบเขตอำนาจของผู้บริหาร (Scope of Authority)', 'ระบุ'),
+  ] },
+  { title: 'รายละเอียดสัญญาเงินกู้ (Loan Details)', test: (t, s) => s === 'Loan Agreement', fields: [
+    T('x_ln_lender', 'ผู้ให้กู้ (Lender)', 'ระบุ', { required: true }),
+    T('x_ln_borrower', 'ผู้กู้ (Borrower)', 'ระบุ', { required: true }),
+    T('x_ln_amount', 'วงเงินกู้ (Principal Amount)', 'ระบุจำนวนและสกุลเงิน', { required: true }),
+    T('x_ln_rate', 'อัตราดอกเบี้ย (Interest Rate)', 'ระบุ'),
+    T('x_ln_repay', 'กำหนดชำระคืน (Repayment Schedule)', 'ระบุ'),
+    T('x_ln_collateral', 'หลักประกัน (Collateral)', 'ระบุ'),
+  ] },
+  { title: 'รายละเอียดการควบรวม/ซื้อกิจการ (M&A Details)', test: (t, s) => s === 'Mergers and Acquisitions Agreement', fields: [
+    T('x_ma_target', 'บริษัทเป้าหมาย (Target Company)', 'ระบุ', { required: true }),
+    { key: 'x_ma_structure', label: 'รูปแบบธุรกรรม (Structure)', type: 'radio', options: ['ซื้อหุ้น (Share purchase)', 'ซื้อสินทรัพย์ (Asset purchase)', 'ควบรวม (Merger)'] },
+    T('x_ma_value', 'มูลค่าธุรกรรม (Transaction Value)', 'ระบุ'),
+    { key: 'x_ma_dd', label: 'วันที่ตรวจสอบสถานะกิจการ (Due Diligence Date)', type: 'date' },
+  ] },
+  { title: 'รายละเอียดสัญญาผู้ถือหุ้น (Shareholders Details)', test: (t, s) => s === 'Shareholders’ Agreement', fields: [
+    T('x_sh_company', 'บริษัท (Company)', 'ระบุ', { required: true }),
+    A('x_sh_holders', 'ผู้ถือหุ้นและสัดส่วน (Shareholders & Shareholding %)', 'ระบุรายชื่อและสัดส่วน', { required: true }),
+    A('x_sh_reserved', 'เรื่องที่ต้องได้รับความเห็นชอบเป็นพิเศษ (Reserved Matters)', 'ระบุ'),
+  ] },
+  { title: 'รายละเอียดสัญญา (Contract Details)', test: (t, s) => en(t) === 'Others' || t === 'Others', fields: [
+    A('x_other_desc', 'อธิบายประเภทและสาระสำคัญของสัญญา (Description)', 'ระบุ', { required: true }),
+  ] },
+];
+const typeFields = TYPE_GROUPS.flatMap((g, gi) => {
+  const on = (v) => !!v.contract_type && g.test(en(v.contract_type), en(v.contract_sub));
+  return [{ type: 'heading', label: g.title, show: on }, ...g.fields.map((f) => ({ ...f, show: on }))];
+});
 const common = [
   { key: 'language', label: 'ภาษา (Language)', type: 'select', options: LANGS, required: true },
   { key: 'confidentiality', label: 'ระดับชั้นความลับ (Confidentiality Level)', type: 'select', options: CONF, required: true },
@@ -107,6 +199,7 @@ export const FORMS = {
   ],
   'Service Agreement': [
     ...contractClass,
+    ...typeFields,
     { key: 'project_name', label: 'ชื่อโครงการ (Project Name)', type: 'text', placeholder: 'ระบุชื่อโครงการ(ถ้ามี)' },
     ...legalAction,
     { key: 'f_main', label: 'Attachment File', type: 'file' },
