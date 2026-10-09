@@ -36,14 +36,14 @@ const CONTRACT_TREE = {
     'Service Agreement / สัญญาให้บริการ': [],
     'Amendment Agreement / สัญญาแก้ไขเพิ่มเติม': [],
     'Sale and Purchase Agreement / สัญญาซื้อขาย': [],
-    'Service Provider Agreement / สัญญาจ้าง': [],
+    'Outsourcing Agreement / สัญญาจ้าง': [],
     'Commercial Agreement / สัญญาทางธุรกิจ': ['Consultancy Agreement / สัญญาให้คำปรึกษา', 'Confidentiality Agreement / สัญญารักษาความลับ'],
     'Others / อื่น ๆ': [],
   },
   [CONFI]: {
     'Preliminary Agreement / ข้อตกลงเบื้องต้น': ['Memorandum of Understanding / บันทึกความเข้าใจ', 'Term Sheet / เอกสารสรุปเงื่อนไขเบื้องต้น'],
     'Commercial Agreement / สัญญาทางธุรกิจ': ['Consultancy Agreement / สัญญาให้คำปรึกษา', 'Confidentiality Agreement / สัญญารักษาความลับ', 'Management Agreement / สัญญาบริหารจัดการ', 'Loan Agreement / สัญญาเงินกู้', 'Mergers and Acquisitions Agreement / สัญญาการควบรวมและซื้อกิจการ', 'Shareholders’ Agreement / สัญญาระหว่างผู้ถือหุ้น'],
-    'Others / อื่น ๆ': ['Others / อื่น ๆ'],
+    'Others / อื่น ๆ': [],
   },
 };
 const subTypes = (v) => CONTRACT_TREE[v.contract_class]?.[v.contract_type] || [];
@@ -87,7 +87,7 @@ const TYPE_GROUPS = [
     T('x_delivery', 'กำหนด/สถานที่ส่งมอบ (Delivery Date & Place)', 'ระบุ'),
     T('x_warranty', 'การรับประกัน (Warranty)', 'ระบุระยะเวลาและเงื่อนไข'),
   ] },
-  { title: 'รายละเอียดสัญญาจ้าง (Service Provider Details)', test: (t) => t === 'Service Provider Agreement', fields: [
+  { title: 'รายละเอียดสัญญาจ้าง (Outsourcing Details)', test: (t) => t === 'Outsourcing Agreement', fields: [
     A('x_work', 'งานที่จ้าง (Work to be Performed)', 'ระบุรายละเอียดงาน', { required: true }),
     T('x_headcount', 'จำนวนบุคลากร (Number of Personnel)', 'ระบุจำนวน'),
     T('x_qualification', 'คุณสมบัติของผู้รับจ้าง (Qualifications)', 'ระบุ'),
