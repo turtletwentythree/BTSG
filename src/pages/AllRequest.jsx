@@ -98,7 +98,7 @@ export default function AllRequest() {
               <tr key={r.id} className="clickable" onClick={() => nav('/requests/' + r.id)}>
                 <td>{r.no}</td><td>{r.company}</td><td>{r.department || '-'}</td><td>{r.type}</td><td>{r.matter}</td><td>{r.title}</td>
                 <td>{r.requester}</td><td>{r.handler_name || '-'}</td><td>{r.created_at.slice(0, 10)}</td>
-                <td><span className={'badge-status' + (r.step === 10 ? ' done' : '')}>{STEPS[r.step - 1]}</span></td>
+                <td><span className={'badge-status' + (r.step === 10 ? ' done' : '')}>{r.status_label || STEPS[r.step - 1]}</span></td>
               </tr>
             ))}
             {rows && shown.length === 0 && <tr><td colSpan="10" className="empty">No requests found</td></tr>}

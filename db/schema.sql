@@ -20,6 +20,9 @@ ALTER TABLE requests ADD COLUMN IF NOT EXISTS department TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS handler_name TEXT;   -- ผู้รับเรื่อง (legal)
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS handler_email TEXT;
 ALTER TABLE requests ADD COLUMN IF NOT EXISTS legal_note TEXT;     -- internal note, legal team only
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS rejected BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS final_approvers TEXT;  -- ";"-separated emails, approve in order
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS final_idx INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS attachments (
   id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -31,6 +34,7 @@ CREATE TABLE IF NOT EXISTS attachments (
   uploaded_by TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS kind TEXT;  -- NULL = request attachment, 'final' = finalized document, 'memo' = memo for signing
 CREATE INDEX IF NOT EXISTS attachments_request_idx ON attachments (request_id);
 
 CREATE TABLE IF NOT EXISTS history (

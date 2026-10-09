@@ -4,8 +4,9 @@ import Stepper from '../components/Stepper.jsx';
 import { api, fmtDate, fmtSize } from '../api';
 import { STEPS, FORMS, OTHERS, fieldLabel } from '../data/requestTypes';
 
-const LABEL = { 1: 'Submit request form', 2: 'Approve request form', 3: 'Accept request', 4: 'Send draft for user comment', 5: 'Approve (User approved)' };
-const WHO = { 1: 'ผู้ทำคำขอ (Requester)', 2: 'ผู้อนุมัติแบบคำขอ (User Approver)', 3: 'ฝ่ายกฎหมาย (Legal team)', 4: 'ฝ่ายกฎหมาย (Legal team)', 5: 'ผู้ทำคำขอ (Requester)' };
+const LABEL = { 1: 'Submit request form', 2: 'Approve request form', 3: 'Accept request', 4: 'Send draft for user comment', 5: 'Approve (User approved)', 6: 'Start finalizing', 7: 'Send for final approval', 8: 'Final approve', 9: 'Mark as signed (Complete)' };
+const NOTE_HINT = { 4: 'Review comment ถึงผู้ทำคำขอ (จำเป็น)', 5: 'ความเห็นของผู้ทำคำขอ (ถ้ามี)', 8: 'หมายเหตุ (ถ้ามี)' };
+const WHO = { 6: 'ฝ่ายกฎหมาย (Legal team)', 7: 'ฝ่ายกฎหมาย (Legal team)', 8: 'ผู้อนุมัติขั้นตอนสุดท้าย (Final approvers)', 9: 'ฝ่ายกฎหมาย (Legal team)', 1: 'ผู้ทำคำขอ (Requester)', 2: 'ผู้อนุมัติแบบคำขอ (User Approver)', 3: 'ฝ่ายกฎหมาย (Legal team)', 4: 'ฝ่ายกฎหมาย (Legal team)', 5: 'ผู้ทำคำขอ (Requester)' };
 const skipKeys = new Set(['user_approver', 'user_coordinator']);
 
 
@@ -15,6 +16,13 @@ export default function RequestDetail() {
   if (!id && params.code) { try { id = atob(params.code); } catch { id = ''; } }
   const [tab, setTab] = useState('summary');
   const [rej, setRej] = useState(null);
+  const [note, setNote] = useState('');
+  const [cfg, setCfg] = useState(null);
+  const [fin, setFin] = useState(null);
+  const finRef = useRef(null);
+  const memoRef = useRef(null);
+  useEffect(() => { api.config().then(setCfg).catch(() => {}); }, []);
+  const [handler, setHandler] = useState('');
   const [r, setR] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -32,6 +40,17 @@ export default function RequestDetail() {
   if (error && !r) return <div className="page"><div className="err big">{error}</div></div>;
   if (!r) return <div className="page">Loading...</div>;
 
+  const finals = String(r.final_approvers || '').split(';').filter(Boolean);
+  const finalDocs = r.attachments.filter((a) => a.kind === 'final');
+  const memoDocs = r.attachments.filter((a) => a.kind === 'memo');
+  const plain = r.attachments.filter((a) => !a.kind);
+  const canDocs = !!cfg?.approver && r.step < STEPS.length;
+  const fileList = (list, removable) => (list.length === 0 ? <p className="muted">-</p> : (
+    <ul className="file-list">{list.map((a) => (
+      <li key={a.id}><i className="mdi mdi-paperclip" /><a className="fn" href={api.downloadUrl(a.id)}>{a.filename}</a><span className="fs">{fmtSize(a.size)}</span>
+        {removable && <button className="x" title="Remove" disabled={busy} onClick={() => window.confirm('Remove this file?') && run(() => api.removeAttachment(a.id))}><i className="mdi mdi-delete-outline" /></button>}</li>
+    ))}</ul>
+  ));
   const byDay = [...r.history].reverse().reduce((m, h) => {
     const d = new Date(h.at);
     const day = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -48,11 +67,29 @@ export default function RequestDetail() {
       {error && <div className="err big">{error}</div>}
 
       {r.step < STEPS.length && (
-        <div className="rd-action">
-          <span><b>{STEPS[r.step - 1]}</b>{!r.can_advance && <span className="muted"> · รอ: {WHO[r.step]}</span>}</span>
-          <span className="rd-spacer" />
-          {r.can_reject && <button className="btn btn-outline danger" disabled={busy} onClick={() => setRej('')}>Reject</button>}
-          {r.can_advance && <button className="btn btn-primary" disabled={busy} onClick={() => run(() => api.advance(id))}>{LABEL[r.step] || 'Move to next step: ' + STEPS[r.step]}</button>}
+        <div className="rd-action col">
+          <div className="rd-arow">
+            <span><b>{r.status_label}</b>{!r.can_advance && <span className="muted"> · รอ: {WHO[r.step]}{r.step === 8 && finals.length ? ` (${finals[r.final_idx] || ''})` : ''}</span>}</span>
+            <span className="rd-spacer" />
+            {r.can_reject && <button className="btn btn-outline danger" disabled={busy} onClick={() => setRej('')}>Reject</button>}
+            {r.can_advance && (
+              <button className="btn btn-primary" disabled={busy}
+                onClick={() => run(async () => { await api.advance(id, note.trim(), r.step === 3 && handler ? { handler_email: handler } : {}); setNote(''); setHandler(''); })}>
+                {LABEL[r.step] || 'Move to next step: ' + STEPS[r.step]}
+              </button>
+            )}
+          </div>
+          {r.can_advance && r.step === 3 && cfg?.approver && (
+            <label className="rd-assign">ผู้รับเรื่อง (Assign to)
+              <select value={handler} onChange={(e) => setHandler(e.target.value)}>
+                <option value="">ตัวฉันเอง (me)</option>
+                {cfg.legalTeam.map((t) => <option key={t.email} value={t.email}>{t.name}</option>)}
+              </select>
+            </label>
+          )}
+          {r.can_advance && NOTE_HINT[r.step] && (
+            <textarea className="form-control" rows="2" placeholder={NOTE_HINT[r.step]} value={note} onChange={(e) => setNote(e.target.value)} />
+          )}
         </div>
       )}
       {rej !== null && (
@@ -83,25 +120,25 @@ export default function RequestDetail() {
           <Row l="เลขที่คำขอ (Request No.)" v={r.no} />
           <Row l="สถานะ (Status)" v={STEPS[r.step - 1]} />
           <p className="rf-l">ร่างเอกสารสุดท้ายและเอกสารแนบ (Finalized Document and Attachment)</p>
-          {r.attachments.length === 0 && <p className="muted">No attachments</p>}
-          <ul className="file-list">
-            {r.attachments.map((a) => (
-              <li key={a.id}>
-                <i className="mdi mdi-paperclip" />
-                <a className="fn" href={api.downloadUrl(a.id)}>{a.filename}</a>
-                <span className="fs">{fmtSize(a.size)}</span>
-                <button className="x" title="Remove" disabled={busy}
-                  onClick={() => window.confirm('Remove this file?') && run(() => api.removeAttachment(a.id))}>
-                  <i className="mdi mdi-delete-outline" />
-                </button>
-              </li>
-            ))}
-          </ul>
-          <input ref={fileRef} type="file" multiple hidden
-            onChange={(e) => { const f = e.target.files; e.target.value = ''; if (f.length) run(() => api.upload(id, f)); }} />
-          <button className="btn btn-outline" disabled={busy} onClick={() => fileRef.current.click()}>
-            <i className="mdi mdi-upload" /> Upload file
-          </button>
+          {fileList(finalDocs, canDocs)}
+          <input ref={finRef} type="file" multiple hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; if (f.length) run(() => api.upload(id, f, 'final')); }} />
+          {canDocs && <button className="btn btn-outline" disabled={busy} onClick={() => finRef.current.click()}><i className="mdi mdi-upload" /> Upload finalized document</button>}
+          <p className="rf-l rd-gap">Memo สำหรับเสนอลงนาม (Memo for Signing Procedure)</p>
+          {fileList(memoDocs, canDocs)}
+          <input ref={memoRef} type="file" multiple hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; if (f.length) run(() => api.upload(id, f, 'memo')); }} />
+          {canDocs && <button className="btn btn-outline" disabled={busy} onClick={() => memoRef.current.click()}><i className="mdi mdi-upload" /> Upload memo</button>}
+          <h3 className="rd-h rd-gap">ผู้อนุมัติขั้นตอนสุดท้าย (Final approver(s))</h3>
+          <p className="rf-l">อนุมัติตามลำดับ ดังนี้ (following approval sequence.)</p>
+          <ol className="final-list">
+            {finals.map((e, i) => <li key={e} className={i < r.final_idx ? 'done' : ''}>{e}{i < r.final_idx && ' ✓'}</li>)}
+            {finals.length === 0 && <li className="muted">ยังไม่ได้กำหนด (ฝ่ายกฎหมายอนุมัติแทน)</li>}
+          </ol>
+          {canDocs && r.step <= 8 && (
+            <div className="rd-assign">
+              <input className="form-control" placeholder="อีเมลผู้อนุมัติ เรียงตามลำดับ คั่นด้วย ;" value={fin ?? finals.join('; ')} onChange={(e) => setFin(e.target.value)} />
+              <button className="btn btn-outline" disabled={busy || fin === null} onClick={() => run(async () => { await api.update(id, { final_approvers: fin }); setFin(null); })}>Save approvers</button>
+            </div>
+          )}
           <p className="rf-l rd-gap">ผู้รับเรื่อง / ผู้อนุมัติขั้นตอนสุดท้าย (Legal handler / Final approver)</p>
           <b>{r.handler_name || <span className="muted">ยังไม่มีผู้รับเรื่อง</span>}</b>
           {r.legal_note !== undefined && <><p className="rf-l rd-gap">บันทึกภายใน (เห็นเฉพาะฝ่ายกฎหมาย)</p><b>{r.legal_note || '-'}</b></>}
@@ -132,11 +169,11 @@ export default function RequestDetail() {
           </div>
           {formBlocks(r)}
           <h3 className="rd-h">เอกสารแนบ (Attachment)</h3>
-          {r.attachments.length === 0 ? <p className="muted">No attachments</p> : (
-            <ul className="file-list">{r.attachments.map((a) => <li key={a.id}><i className="mdi mdi-paperclip" /><a className="fn" href={api.downloadUrl(a.id)}>{a.filename}</a><span className="fs">{fmtSize(a.size)}</span></li>)}</ul>
+          {plain.length === 0 ? <p className="muted">No attachments</p> : (
+            <ul className="file-list">{plain.map((a) => <li key={a.id}><i className="mdi mdi-paperclip" /><a className="fn" href={api.downloadUrl(a.id)}>{a.filename}</a><span className="fs">{fmtSize(a.size)}</span></li>)}</ul>
           )}
           <h3 className="rd-h">ฝ่ายกฎหมาย (Legal)</h3>
-          <div className="rf-grid"><Row l="ผู้รับเรื่อง" v={r.handler_name} /></div>
+          <div className="rf-grid"><Row l="ผู้รับเรื่อง" v={r.handler_name} /><Row l="อนุมัติโดย (To be approved by)" v={r.fields.user_approver} /></div>
         </section>
       )}
 

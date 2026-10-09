@@ -76,7 +76,7 @@ async function initDb() {
 }
 
 /* ---------- helpers ---------- */
-const withStep = (r) => r && { ...r, step_name: STEPS[r.step - 1] };
+const withStep = (r) => r && { ...r, step_name: STEPS[r.step - 1], status_label: r.step === 1 ? (r.rejected ? 'Rejected' : 'Draft') : STEPS[r.step - 1] };
 const actorOf = (req) => req.user?.name || 'Unknown';
 // legal_note is internal: only the legal team (approvers) may see it
 const out = (r, req) => { const o = withStep(r); if (!isApprover(req.user)) delete o.legal_note; return o; };
@@ -91,19 +91,21 @@ const isUserApprover = (r, user) => emailIs(r.fields?.user_approver, user?.email
 const isOwner = (r, user) =>
   !!user && (r.requester_email ? r.requester_email.toLowerCase() === String(user.email || '').toLowerCase() : r.requester === user.name);
 const canEdit = (r, user) => isApprover(user) || (isOwner(r, user) && r.step < STEPS.length);
+const finalList = (r) => String(r.final_approvers || '').split(';').map((x) => x.trim()).filter(Boolean);
 const canAdvance = (r, user) => r.step < STEPS.length && (
-  r.step === 2 ? (isUserApprover(r, user) || isApprover(user))
+  r.step === 8 && finalList(r).length ? (emailIs(finalList(r)[r.final_idx], user?.email) || isApprover(user))
+    : r.step === 2 ? (isUserApprover(r, user) || isApprover(user))
     : r.step === 1 ? (isOwner(r, user) || isApprover(user))
     : (isApprover(user) || (REQUESTER_STEPS.has(r.step) && isOwner(r, user))));
-const REJECT_TO = { 2: 1, 3: 1, 5: 4 };
+const REJECT_TO = { 2: 1, 3: 1, 5: 4, 8: 7 };
 const canReject = (r, user) => !!REJECT_TO[r.step] && canAdvance(r, user);
 const fixName = (n) => Buffer.from(n, 'latin1').toString('utf8'); // multer gives latin1 names
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const ATT_COLS = 'id,filename,size::int AS size,mime,uploaded_by,created_at';
+const ATT_COLS = 'id,filename,size::int AS size,mime,uploaded_by,created_at,kind';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 10 } });
 
-async function saveFiles(client, rid, files = [], actor) {
+async function saveFiles(client, rid, files = [], actor, kind = null) {
   const stored = [];
   try {
     for (const f of files) {
@@ -111,8 +113,8 @@ async function saveFiles(client, rid, files = [], actor) {
       await putFile(key, f.buffer, f.mimetype);
       stored.push(key);
       await client.query(
-        'INSERT INTO attachments (request_id,filename,stored,size,mime,uploaded_by) VALUES ($1,$2,$3,$4,$5,$6)',
-        [rid, fixName(f.originalname), key, f.size, f.mimetype, actor]
+        'INSERT INTO attachments (request_id,filename,stored,size,mime,uploaded_by,kind) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [rid, fixName(f.originalname), key, f.size, f.mimetype, actor, kind]
       );
     }
   } catch (e) {
@@ -212,6 +214,11 @@ app.patch('/api/requests/:id', wrap(async (req, res) => {
       handler_name = he ? (hn || he) : null;
     }
     if (req.body?.legal_note !== undefined) legal_note = clip(req.body.legal_note, 5000);
+    if (req.body?.final_approvers !== undefined) {
+      const list = String(req.body.final_approvers).split(/[;,\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean).slice(0, 10);
+      await pool.query('UPDATE requests SET final_approvers=$1, final_idx=0 WHERE id=$2', [list.join(';') || null, r.id]);
+      changed.push('final_approvers');
+    }
     if ((handler_email || '') !== (r.handler_email || '')) changed.push('handler');
     if ((legal_note || '') !== (r.legal_note || '')) changed.push('legal_note');
   }
@@ -235,17 +242,40 @@ app.post('/api/requests/:id/advance', wrap(async (req, res) => {
   if (!r) return res.status(404).json({ error: 'Not found' });
   if (r.step >= STEPS.length) return res.status(400).json({ error: 'Already complete' });
   if (!canAdvance(r, req.user)) return res.status(403).json({ error: 'You do not have permission to approve this step' });
-  const step = r.step + 1;
+  const who = req.user?.email || actorOf(req);
+  const note = clip(req.body?.note, 500);
+  let step = r.step + 1;
+  let label = { 1: 'Submit request form', 2: 'Approve request form', 3: 'Accept request', 4: 'Send draft for user comment', 5: 'User approved', 7: 'Finalized document', 9: 'Signed' }[r.step] || STEPS[step - 1];
+  if (r.step === 4 && !note) return res.status(400).json({ error: 'Please write a comment for the user (review comment)' });
+  if (r.step === 7) {
+    const f = await q("SELECT COUNT(*)::int AS c FROM attachments WHERE request_id=$1 AND kind='final'", [r.id]);
+    if (!f.rows[0].c) return res.status(400).json({ error: 'Attach the finalized document before sending it for final approval' });
+  }
+  let idx = r.final_idx;
+  if (r.step === 8) {
+    const list = finalList(r);
+    if (list.length) {
+      idx = r.final_idx + 1;
+      label = `Final approval ${idx}/${list.length}`;
+      if (idx < list.length) step = 8; // more approvers in the sequence
+    } else label = 'Final approved';
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('UPDATE requests SET step=$1, updated_at=now() WHERE id=$2', [step, r.id]);
-    // the legal person who accepts the request becomes its handler (ผู้รับเรื่อง)
-    if (r.step === 3 && !r.handler_email && isApprover(req.user)) {
-      await client.query('UPDATE requests SET handler_name=$1, handler_email=$2 WHERE id=$3', [actorOf(req), req.user.email || null, r.id]);
+    await client.query('UPDATE requests SET step=$1, final_idx=$2, rejected=false, updated_at=now() WHERE id=$3', [step, idx, r.id]);
+    // the legal person who accepts the request becomes its handler (ผู้รับเรื่อง); they may assign someone else
+    if (r.step === 3 && isApprover(req.user)) {
+      const he = clip(req.body?.handler_email, 200)?.toLowerCase();
+      if (he) {
+        const u = await client.query('SELECT name FROM users WHERE email=$1', [he]);
+        await client.query('UPDATE requests SET handler_name=$1, handler_email=$2 WHERE id=$3', [u.rows[0]?.name || he, he, r.id]);
+        label = `Accept request (assigned to ${u.rows[0]?.name || he})`;
+      } else if (!r.handler_email) {
+        await client.query('UPDATE requests SET handler_name=$1, handler_email=$2 WHERE id=$3', [actorOf(req), req.user.email || null, r.id]);
+      }
     }
-    const label = { 1: 'Submit request form', 2: 'Approve request form', 3: 'Accept request', 5: 'User approved' }[r.step] || STEPS[step - 1];
-    await addHistory(client, r.id, step, clip(req.body?.note, 500) || label, req.user?.email || actorOf(req));
+    await addHistory(client, r.id, step, note ? `${label}: ${note}` : label, who);
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
   const { rows } = await q('SELECT * FROM requests WHERE id=$1', [r.id]);
@@ -262,7 +292,7 @@ app.post('/api/requests/:id/reject', wrap(async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('UPDATE requests SET step=$1, updated_at=now() WHERE id=$2', [step, r.id]);
+    await client.query('UPDATE requests SET step=$1, rejected=$2, final_idx=0, updated_at=now() WHERE id=$3', [step, step === 1, r.id]);
     await addHistory(client, r.id, step, `Reject request: ${reason}`, req.user?.email || actorOf(req));
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
@@ -273,7 +303,9 @@ app.post('/api/requests/:id/reject', wrap(async (req, res) => {
 app.post('/api/requests/:id/attachments', upload.array('files', 10), wrap(async (req, res) => {
   const r = await findRequest(req.params.id);
   if (!r) return res.status(404).json({ error: 'Not found' });
-  await saveFiles(pool, r.id, req.files, actorOf(req));
+  const kind = ['final', 'memo'].includes(req.body?.kind) ? req.body.kind : null;
+  if (kind && !isApprover(req.user)) return res.status(403).json({ error: 'Only the legal team can upload final documents' });
+  await saveFiles(pool, r.id, req.files, actorOf(req), kind);
   await q('UPDATE requests SET updated_at=now() WHERE id=$1', [r.id]);
   const { rows } = await q(`SELECT ${ATT_COLS} FROM attachments WHERE request_id=$1 ORDER BY id`, [r.id]);
   res.status(201).json(rows);
