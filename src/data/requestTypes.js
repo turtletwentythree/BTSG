@@ -49,9 +49,9 @@ const CONTRACT_TREE = {
 const subTypes = (v) => CONTRACT_TREE[v.contract_class]?.[v.contract_type] || [];
 const contractClass = [
   { key: 'contract_class', label: 'ประเภทสัญญา (Contract Classification)', type: 'select', required: true, options: Object.keys(CONTRACT_TREE), resets: ['contract_type', 'contract_sub'] },
-  { key: 'contract_type', label: 'ชนิดของสัญญา (Type of Contract)', type: 'select', required: true, show: (v) => !!v.contract_class,
+  { key: 'contract_type', label: 'ชนิดของสัญญา (Type of Contract)', type: 'select', required: true, disabled: (v) => !v.contract_class,
     options: (v) => Object.keys(CONTRACT_TREE[v.contract_class] || {}), resets: ['contract_sub'] },
-  { key: 'contract_sub', label: 'ชนิดย่อยของสัญญา (Sub Type of Contract)', type: 'select', required: true, show: (v) => subTypes(v).length > 0, options: subTypes },
+  { key: 'contract_sub', label: 'ชนิดย่อยของสัญญา (Sub Type of Contract)', type: 'select', required: (v) => subTypes(v).length > 0, disabled: (v) => subTypes(v).length === 0, options: subTypes },
 ];
 
 // Extra questions per contract type / sub type (my own design: the reference's contents are not readable).
@@ -306,5 +306,6 @@ export const deriveTitle = (matter, v) => {
   const x = v.project_name || v.counterparty || v.company_name || v.purpose || '';
   return (matter + (x ? ' - ' + String(x).slice(0, 80) : '')).slice(0, 200);
 };
+export const isReq = (f, v) => (typeof f.required === 'function' ? f.required(v) : !!f.required);
 export const missingRequired = (matter, v) =>
-  visibleFields(matter, v).filter((f) => f.required && !String(v[f.key] ?? '').trim()).map((f) => f.key);
+  visibleFields(matter, v).filter((f) => isReq(f, v) && !String(v[f.key] ?? '').trim()).map((f) => f.key);

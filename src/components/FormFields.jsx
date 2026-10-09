@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import Select from './Select.jsx';
-import { OTHERS, visibleFields } from '../data/requestTypes';
+import { OTHERS, visibleFields, isReq } from '../data/requestTypes';
 import { fmtSize } from '../api';
 
 const split = (v) => String(v || '').split(';').filter(Boolean);
@@ -61,7 +61,7 @@ function FileField({ f, files = [], onChange }) {
 // Renders every visible field of a matter's form definition.
 export default function FormFields({ matter, values, set, cfg, tried, fileMap, setFileMap }) {
   const fields = visibleFields(matter, values);
-  const req = (f) => tried && f.required && !String(values[f.key] ?? '').trim();
+  const req = (f) => tried && isReq(f, values) && !String(values[f.key] ?? '').trim();
   return fields.map((f, i) => {
     if (f.type === 'heading') return <h3 key={'h' + i} className="form-heading">{f.label}</h3>;
     if (f.type === 'file' && !setFileMap) return null;
@@ -69,10 +69,10 @@ export default function FormFields({ matter, values, set, cfg, tried, fileMap, s
     const v = values[f.key] ?? '';
     return (
       <div className="field" key={f.key}>
-        <label>{f.label}{f.required && <span className="req">*</span>}</label>
+        <label>{f.label}{isReq(f, values) && <span className="req">*</span>}</label>
         {f.type === 'select' && (
           <>
-            <Select value={v} options={f.others ? [...options, OTHERS] : options} onChange={(x) => { set(f.key, x); (f.resets || []).forEach((k) => set(k, '')); }} placeholder={f.placeholder || 'โปรดเลือก...'} />
+            <Select disabled={f.disabled?.(values)} value={v} options={f.others ? [...options, OTHERS] : options} onChange={(x) => { set(f.key, x); (f.resets || []).forEach((k) => set(k, '')); }} placeholder={f.placeholder || 'โปรดเลือก...'} />
             {f.others && v === OTHERS && (
               <input className="form-control gap" placeholder="ระบุ (Others)" value={values[f.key + '_other'] ?? ''} onChange={(e) => set(f.key + '_other', e.target.value)} />
             )}
