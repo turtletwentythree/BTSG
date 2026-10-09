@@ -93,7 +93,7 @@ export default function TrackingList() {
               <tr key={r.id} className="clickable" onClick={() => nav('/requests/' + r.id)}>
                 <td>{r.no}</td><td>{r.created_at.slice(0, 10)}</td><td>{r.company}</td>
                 <td>{String(val(r, k1)) || '-'}</td><td>{String(val(r, k2)) || '-'}</td><td>{r.handler_name || '-'}</td>
-                <td><span className={'badge-status' + (r.step === 10 ? ' done' : '')}>{STEPS[r.step - 1]}</span></td>
+                <td><span className={'badge-status' + (r.step === 10 ? ' done' : '')}>{r.step === 1 ? 'Draft' : STEPS[r.step - 1]}</span></td>
               </tr>
             ))}
             {rows && shown.length === 0 && <tr><td colSpan="7" className="empty">No result found!</td></tr>}

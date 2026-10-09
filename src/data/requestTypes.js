@@ -19,9 +19,9 @@ export const STEPS = [
    `options: '@companies'` is replaced with the configured company list at render time.
    Multi-value answers (checks / regs) are stored as a ";"-joined string. */
 export const OTHERS = 'อื่นๆ (Others)';
-const LANGS = ['ภาษาไทย (Thai)', 'ภาษาอังกฤษ (English)', 'ไทย-อังกฤษ (Thai-English)'];
-const CONF = ['Public', 'Internal', 'Confidential', 'Strictly Confidential'];
-const ACT_AS = ['ผู้ว่าจ้าง / ผู้รับบริการ (Client)', 'ผู้รับจ้าง / ผู้ให้บริการ (Service Provider)'];
+const LANGS = ['ภาษาไทย', 'ภาษาอังกฤษ (English)', 'ไทย-อังกฤษ (Thai-English)'];
+const CONF = ['ทั่วไป', 'ภายในองค์กร (Internal)', 'ลับ (Confidential)', 'ลับมาก (Strictly Confidential)'];
+const ACT_AS = ['ผู้ว่าจ้าง (Service Receiver)', 'ผู้รับจ้าง (Service Provider)'];
 const company = (label = 'ทำสัญญาในนามของ (Company Name)') => [
   { key: 'company_name', label, type: 'select', options: '@companies', required: true, others: true, placeholder: 'ระบุชื่อในการทำสัญญา' },
 ];
@@ -112,7 +112,7 @@ export const FORMS = {
     { key: 'fee_vat', label: 'มูลค่ารวมข้างต้นนั้น (The Total Service Fee above)', type: 'radio',
       options: ['รวม VAT (includes VAT)', 'ไม่รวม VAT (excludes VAT)', 'ไม่มี VAT (is not subject to VAT)'] },
     { key: 'payment_term', label: 'รูปแบบการชำระเงิน (Payment Term)', type: 'select',
-      options: ['ชำระครั้งเดียว (Lump sum)', 'รายเดือน (Monthly)', 'รายงวด (Installments)', OTHERS] },
+      options: ['ชำระครั้งเดียว (Lump sum)', 'รายเดือน (Monthly)', 'รายงวด', OTHERS] },
     { key: 'payment_detail', label: 'โปรดระบุ (please provide details)', type: 'text', placeholder: 'ระบุรายละเอียด' },
     { key: 'credit_term', label: 'เครดิตการชำระเงิน หรือระยะเวลาถึงกำหนดชำระเงิน (Credit Term)', type: 'text', placeholder: 'ระบุรายละเอียดเครดิตการชำระเงิน' },
     { key: 'performance_bond', label: 'หลักประกันการปฏิบัติงาน (Performance Bond)', type: 'text', placeholder: 'โปรดระบุรูปแบบหลักประกัน วงเงิน และเงื่อนไขการคืนหลักประกัน' },
