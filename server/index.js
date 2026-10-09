@@ -84,7 +84,7 @@ const clip = (v, n) => (v == null ? null : String(v).trim().slice(0, n) || null)
 
 // Approval rights: approvers can move any step. The requester may only act on the step that
 // is waiting for them (5 = "Waiting for user comment").
-const REQUESTER_STEPS = new Set([1, 5]);
+const REQUESTER_STEPS = new Set([1, 5, 6]);
 const emailIs = (a, b) => !!a && !!b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 // step 2 is the "User Approver" named in the form; steps 1 and 5 belong to the requester; the rest to the legal team
 const isUserApprover = (r, user) => emailIs(r.fields?.user_approver, user?.email);
@@ -245,8 +245,15 @@ app.post('/api/requests/:id/advance', wrap(async (req, res) => {
   const who = req.user?.email || actorOf(req);
   const note = clip(req.body?.note, 500);
   let step = r.step + 1;
-  let label = { 1: 'Submit request form', 2: 'Approve request form', 3: 'Accept request', 4: 'Send draft for user comment', 5: 'User approved', 7: 'Finalized document', 9: 'Signed' }[r.step] || STEPS[step - 1];
+  let label = { 1: 'Submit request form', 2: 'Approve request form', 3: 'Accept request', 4: 'Send review opinion to coordinator', 5: 'Coordinator approved', 6: 'Memo for signing prepared', 7: 'Signing version prepared', 9: 'Signed document recorded' }[r.step] || STEPS[step - 1];
   if (r.step === 4 && !note) return res.status(400).json({ error: 'Please write a comment for the user (review comment)' });
+  const needKind = async (kind, msg) => {
+    const f = await q('SELECT COUNT(*)::int AS c FROM attachments WHERE request_id=$1 AND kind=$2', [r.id, kind]);
+    if (!f.rows[0].c) { res.status(400).json({ error: msg }); return false; }
+    return true;
+  };
+  if (r.step === 6 && !(await needKind('memo', 'Attach the memo for signing before handing over to Legal'))) return;
+  if (r.step === 9 && !(await needKind('signed', 'Upload the signed document before completing'))) return;
   if (r.step === 7) {
     const f = await q("SELECT COUNT(*)::int AS c FROM attachments WHERE request_id=$1 AND kind='final'", [r.id]);
     if (!f.rows[0].c) return res.status(400).json({ error: 'Attach the finalized document before sending it for final approval' });
@@ -293,7 +300,7 @@ app.post('/api/requests/:id/reject', wrap(async (req, res) => {
   try {
     await client.query('BEGIN');
     await client.query('UPDATE requests SET step=$1, rejected=$2, final_idx=0, updated_at=now() WHERE id=$3', [step, step === 1, r.id]);
-    await addHistory(client, r.id, step, `Reject request: ${reason}`, req.user?.email || actorOf(req));
+    await addHistory(client, r.id, step, `${[2, 5].includes(r.step) ? 'Return' : 'Reject'} request: ${reason}`, req.user?.email || actorOf(req));
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
   const { rows } = await q('SELECT * FROM requests WHERE id=$1', [r.id]);
@@ -303,8 +310,9 @@ app.post('/api/requests/:id/reject', wrap(async (req, res) => {
 app.post('/api/requests/:id/attachments', upload.array('files', 10), wrap(async (req, res) => {
   const r = await findRequest(req.params.id);
   if (!r) return res.status(404).json({ error: 'Not found' });
-  const kind = ['final', 'memo'].includes(req.body?.kind) ? req.body.kind : null;
-  if (kind && !isApprover(req.user)) return res.status(403).json({ error: 'Only the legal team can upload final documents' });
+  const kind = ['final', 'memo', 'signed'].includes(req.body?.kind) ? req.body.kind : null;
+  const memoByOwner = kind === 'memo' && r.step === 6 && isOwner(r, req.user);
+  if (kind && !isApprover(req.user) && !memoByOwner) return res.status(403).json({ error: 'You cannot upload this kind of document' });
   await saveFiles(pool, r.id, req.files, actorOf(req), kind);
   await q('UPDATE requests SET updated_at=now() WHERE id=$1', [r.id]);
   const { rows } = await q(`SELECT ${ATT_COLS} FROM attachments WHERE request_id=$1 ORDER BY id`, [r.id]);

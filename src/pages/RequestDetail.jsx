@@ -4,9 +4,9 @@ import Stepper from '../components/Stepper.jsx';
 import { api, fmtDate, fmtSize } from '../api';
 import { STEPS, FORMS, OTHERS, fieldLabel } from '../data/requestTypes';
 
-const LABEL = { 1: 'Submit request form', 2: 'Approve request form', 3: 'Accept request', 4: 'Send draft for user comment', 5: 'Approve (User approved)', 6: 'Start finalizing', 7: 'Send for final approval', 8: 'Final approve', 9: 'Mark as signed (Complete)' };
-const NOTE_HINT = { 4: 'Review comment ถึงผู้ทำคำขอ (จำเป็น)', 5: 'ความเห็นของผู้ทำคำขอ (ถ้ามี)', 8: 'หมายเหตุ (ถ้ามี)' };
-const WHO = { 6: 'ฝ่ายกฎหมาย (Legal team)', 7: 'ฝ่ายกฎหมาย (Legal team)', 8: 'ผู้อนุมัติขั้นตอนสุดท้าย (Final approvers)', 9: 'ฝ่ายกฎหมาย (Legal team)', 1: 'ผู้ทำคำขอ (Requester)', 2: 'ผู้อนุมัติแบบคำขอ (User Approver)', 3: 'ฝ่ายกฎหมาย (Legal team)', 4: 'ฝ่ายกฎหมาย (Legal team)', 5: 'ผู้ทำคำขอ (Requester)' };
+const LABEL = { 1: 'Submit request form', 2: 'Approve', 3: 'Accept request', 4: 'Send opinion to Coordinator', 5: 'Approve (Coordinator)', 6: 'Send memo to Legal', 7: 'Send for final approval', 8: 'Final approve', 9: 'Record signed file (Complete)' };
+const NOTE_HINT = { 4: 'ความเห็นของฝ่ายกฎหมายถึง Coordinator (จำเป็น)', 5: 'ความเห็นของ Coordinator (ถ้ามี)', 6: 'หมายเหตุถึงฝ่ายกฎหมาย (ถ้ามี)', 8: 'หมายเหตุ (ถ้ามี)' };
+const WHO = { 6: 'Coordinator (เตรียม Memo ลงนาม)', 7: 'ฝ่ายกฎหมาย (Legal team)', 8: 'ผู้อนุมัติขั้นตอนสุดท้าย (Final approvers)', 9: 'ฝ่ายกฎหมาย (Legal team)', 1: 'ผู้ทำคำขอ (Requester)', 2: 'ผู้อนุมัติแบบคำขอ (User Approver)', 3: 'ฝ่ายกฎหมาย (Legal team)', 4: 'ฝ่ายกฎหมาย (Legal team)', 5: 'Coordinator (ผู้ทำคำขอ)' };
 const skipKeys = new Set(['user_approver', 'user_coordinator']);
 
 
@@ -21,6 +21,7 @@ export default function RequestDetail() {
   const [fin, setFin] = useState(null);
   const finRef = useRef(null);
   const memoRef = useRef(null);
+  const sigRef = useRef(null);
   useEffect(() => { api.config().then(setCfg).catch(() => {}); }, []);
   const [handler, setHandler] = useState('');
   const [r, setR] = useState(null);
@@ -43,6 +44,8 @@ export default function RequestDetail() {
   const finals = String(r.final_approvers || '').split(';').filter(Boolean);
   const finalDocs = r.attachments.filter((a) => a.kind === 'final');
   const memoDocs = r.attachments.filter((a) => a.kind === 'memo');
+  const signedDocs = r.attachments.filter((a) => a.kind === 'signed');
+  const canMemo = canDocs || (r.step === 6 && r.can_advance);
   const plain = r.attachments.filter((a) => !a.kind);
   const canDocs = !!cfg?.approver && r.step < STEPS.length;
   const fileList = (list, removable) => (list.length === 0 ? <p className="muted">-</p> : (
@@ -71,7 +74,8 @@ export default function RequestDetail() {
           <div className="rd-arow">
             <span><b>{r.status_label}</b>{!r.can_advance && <span className="muted"> · รอ: {WHO[r.step]}{r.step === 8 && finals.length ? ` (${finals[r.final_idx] || ''})` : ''}</span>}</span>
             <span className="rd-spacer" />
-            {r.can_reject && <button className="btn btn-outline danger" disabled={busy} onClick={() => setRej('')}>Reject</button>}
+            {r.can_reject && <button className="btn btn-outline danger" disabled={busy} onClick={() => setRej('')}>{[2, 5].includes(r.step) ? 'Return' : 'Reject'}</button>}
+            {r.step === 2 && r.can_edit && <Link className="btn btn-outline" to={`/requests/${r.id}/edit`}>Save</Link>}
             {r.can_advance && (
               <button className="btn btn-primary" disabled={busy}
                 onClick={() => run(async () => { await api.advance(id, note.trim(), r.step === 3 && handler ? { handler_email: handler } : {}); setNote(''); setHandler(''); })}>
@@ -95,12 +99,12 @@ export default function RequestDetail() {
       {rej !== null && (
         <div className="modal-back" onClick={() => setRej(null)}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
-            <h3>Reject request</h3>
+            <h3>{[2, 5].includes(r.step) ? 'Return request' : 'Reject request'}</h3>
             <p className="muted small">ระบุเหตุผล (Reason) — จะบันทึกใน History</p>
             <textarea className="form-control" rows="4" value={rej} onChange={(e) => setRej(e.target.value)} />
             <div className="modal-actions">
               <button className="btn btn-outline" onClick={() => setRej(null)}>Cancel</button>
-              <button className="btn btn-primary" disabled={busy || !rej.trim()} onClick={() => { const n = rej.trim(); setRej(null); run(() => api.reject(id, n)); }}>Confirm reject</button>
+              <button className="btn btn-primary" disabled={busy || !rej.trim()} onClick={() => { const n = rej.trim(); setRej(null); run(() => api.reject(id, n)); }}>Confirm</button>
             </div>
           </div>
         </div>
@@ -124,9 +128,13 @@ export default function RequestDetail() {
           <input ref={finRef} type="file" multiple hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; if (f.length) run(() => api.upload(id, f, 'final')); }} />
           {canDocs && <button className="btn btn-outline" disabled={busy} onClick={() => finRef.current.click()}><i className="mdi mdi-upload" /> Upload finalized document</button>}
           <p className="rf-l rd-gap">Memo สำหรับเสนอลงนาม (Memo for Signing Procedure)</p>
-          {fileList(memoDocs, canDocs)}
+          {fileList(memoDocs, canMemo)}
           <input ref={memoRef} type="file" multiple hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; if (f.length) run(() => api.upload(id, f, 'memo')); }} />
-          {canDocs && <button className="btn btn-outline" disabled={busy} onClick={() => memoRef.current.click()}><i className="mdi mdi-upload" /> Upload memo</button>}
+          {canMemo && <button className="btn btn-outline" disabled={busy} onClick={() => memoRef.current.click()}><i className="mdi mdi-upload" /> Upload memo</button>}
+          <p className="rf-l rd-gap">ไฟล์ที่ลงนามแล้ว (Signed Document)</p>
+          {fileList(signedDocs, canDocs)}
+          <input ref={sigRef} type="file" multiple hidden onChange={(e) => { const f = e.target.files; e.target.value = ''; if (f.length) run(() => api.upload(id, f, 'signed')); }} />
+          {canDocs && r.step >= 9 && <button className="btn btn-outline" disabled={busy} onClick={() => sigRef.current.click()}><i className="mdi mdi-upload" /> Upload signed document</button>}
           <h3 className="rd-h rd-gap">ผู้อนุมัติขั้นตอนสุดท้าย (Final approver(s))</h3>
           <p className="rf-l">อนุมัติตามลำดับ ดังนี้ (following approval sequence.)</p>
           <ol className="final-list">
