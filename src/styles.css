@@ -194,3 +194,8 @@ textarea.form-control{resize:vertical}
 .topbar-logo{height:38px;width:auto;cursor:pointer;flex:none;margin:0 6px}
 .login-logo{display:block;height:96px;width:auto;margin:0 auto 12px}
 .login-box{text-align:center}
+
+.tl-title{margin:0 0 9.6px;font-size:24px;font-weight:700;text-transform:capitalize}
+.tl-foot{margin:9.6px 0 14px}
+.tbl th.sortable{cursor:pointer;white-space:nowrap}
+.tbl th.sortable i{opacity:.45}

@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { REQUEST_TYPES } from '../data/requestTypes';
+import { matterCode } from './TrackingList.jsx';
 
 export default function AllTypeRequest() {
   const nav = useNavigate();
@@ -28,7 +29,7 @@ export default function AllTypeRequest() {
           <div className="atr-grid">
             {t.matters.map((m) => (
               <button key={m.name} className="atr-btn-sub-request-type"
-                onClick={() => nav('/create-requests', { state: { type: t.name, matter: m.name } })}>
+                onClick={() => nav('/request-form/' + matterCode(m.name))}>
                 <i className="mdi mdi-book-open-blank-variant atr-icon-sub-request-type" style={{ color: m.color }} />
                 {m.name}
               </button>
