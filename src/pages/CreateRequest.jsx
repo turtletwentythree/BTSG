@@ -3,8 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Select from '../components/Select.jsx';
 import Stepper from '../components/Stepper.jsx';
 import FileDrop from '../components/FileDrop.jsx';
-import { MATTER_FIELDS, REQUEST_TYPES } from '../data/requestTypes';
-import Field from '../components/Field.jsx';
+import { REQUEST_TYPES, REMARKS, deriveTitle, missingRequired } from '../data/requestTypes';
+import FormFields from '../components/FormFields.jsx';
 import OrgFields from '../components/OrgFields.jsx';
 import { api } from '../api';
 
@@ -15,9 +15,8 @@ export default function CreateRequest() {
   const [stage, setStage] = useState(1);
   const [type, setType] = useState(state?.type || '');
   const [matter, setMatter] = useState(state?.matter || '');
-  const [title, setTitle] = useState('');
   const [values, setValues] = useState({});
-  const [files, setFiles] = useState([]);
+  const [fileMap, setFileMap] = useState({});
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -27,27 +26,26 @@ export default function CreateRequest() {
   useEffect(() => { api.config().then((c) => { setCfg(c); setCompany(c.companies[0] || ''); }).catch(() => {}); }, []);
 
   const matters = REQUEST_TYPES.find((t) => t.name === type)?.matters.map((m) => m.name) || [];
-  const fields = MATTER_FIELDS[matter] || [];
   const setVal = (k, v) => setValues({ ...values, [k]: v });
 
-  const next = async () => {
+  const go = async (draft) => {
     setTried(true);
-    if (stage === 1) {
-      if (type && matter) { setStage(2); setTried(false); }
-      return;
-    }
-    const missing = !title.trim() || fields.some((f) => f.required && !String(values[f.key] ?? '').trim());
-    if (missing) return;
+    if (!draft && missingRequired(matter, values).length) return;
     setBusy(true); setError('');
     try {
       const form = new FormData();
-      form.append('type', type); form.append('matter', matter); form.append('title', title.trim());
+      form.append('type', type); form.append('matter', matter); form.append('title', deriveTitle(matter, values));
       form.append('company', company); form.append('department', department);
+      form.append('draft', draft ? '1' : '');
       form.append('fields', JSON.stringify(values));
-      files.forEach((f) => form.append('files', f));
+      Object.values(fileMap).flat().forEach((f) => form.append('files', f));
       const r = await api.create(form);
       nav('/requests/' + r.id);
     } catch (e) { setError(e.message); setBusy(false); }
+  };
+  const next = () => {
+    setTried(true);
+    if (type && matter) { setStage(2); setTried(false); }
   };
   const back = () => (stage === 2 ? setStage(1) : nav(-1));
 
@@ -66,26 +64,29 @@ export default function CreateRequest() {
         </div>
       ) : (
         <div className="form-body">
-          <h2>{matter} <small>({type})</small></h2>
-          <div className="field">
-            <label>หัวข้อคำขอ (Title)<span className="req">*</span></label>
-            <input className="form-control" value={title} onChange={(e) => setTitle(e.target.value)} />
-            {tried && !title.trim() && <div className="err">กรุณากรอกข้อมูลนี้ (Required)</div>}
-          </div>
+          <p className="muted small">โปรดกรอกข้อมูลในข้อที่มีดอกจันกำกับให้ครบถ้วน (Please fill out the information in the sections marked with *)</p>
+          <h3 className="form-heading">ข้อมูลของผู้ทำคำขอ (User Information)</h3>
+          <div className="field"><label>คำขอเลขที่ (Request No.)</label><input className="form-control" value="Draft" disabled /></div>
+          <div className="field"><label>วันที่สร้างคำขอ (Date of Request)</label><input className="form-control" value={new Date().toLocaleDateString('en-GB')} disabled /></div>
           {cfg && <OrgFields cfg={cfg} company={company} department={department} onCompany={setCompany} onDepartment={setDepartment} />}
-          {fields.map((f) => (
-            <Field key={f.key} f={f} value={values[f.key] ?? ''} onChange={(v) => setVal(f.key, v)}
-              error={tried && f.required && !String(values[f.key] ?? '').trim()} />
-          ))}
-          <FileDrop files={files} onChange={setFiles} />
+          <h3 className="form-heading">ข้อมูลทั่วไป (Request General Information)</h3>
+          <div className="field"><label>ประเภทคำขอ (Type of Request)</label><input className="form-control" value={type} disabled /></div>
+          <div className="field"><label>เรื่อง (Matters)</label><input className="form-control" value={matter} disabled /></div>
+          {cfg && <FormFields matter={matter} values={values} set={setVal} cfg={cfg} tried={tried} fileMap={fileMap} setFileMap={setFileMap} />}
+          <div className="remark"><b>หมายเหตุ (Remark)</b><br />{REMARKS[matter]}</div>
           {error && <div className="err big">{error}</div>}
         </div>
       )}
       <div className="form-footer">
         <button className="btn-back" onClick={back}>Back</button>
-        <button className="btn btn-primary" onClick={next} disabled={busy}>
-          {stage === 1 ? 'Continue' : busy ? 'Submitting...' : 'Submit'}
-        </button>
+        {stage === 1 ? (
+          <button className="btn btn-primary" onClick={next}>Continue</button>
+        ) : (
+          <span className="foot-actions">
+            <button className="btn btn-outline" onClick={() => go(true)} disabled={busy}>Save</button>
+            <button className="btn btn-primary" onClick={() => go(false)} disabled={busy}>{busy ? 'Submitting...' : 'Submit'}</button>
+          </span>
+        )}
       </div>
     </div>
   );

@@ -20,6 +20,9 @@ export const api = {
   advance: (id, note) => call(`/requests/${id}/advance`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note }),
   }),
+  reject: (id, note) => call(`/requests/${id}/reject`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note }),
+  }),
   upload: (id, files) => {
     const f = new FormData();
     [...files].forEach((x) => f.append('files', x));

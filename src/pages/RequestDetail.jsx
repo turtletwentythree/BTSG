@@ -2,13 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import Stepper from '../components/Stepper.jsx';
 import { api, fmtDate, fmtSize } from '../api';
-import { STEPS, fieldLabel } from '../data/requestTypes';
+import { STEPS, FORMS, OTHERS, fieldLabel } from '../data/requestTypes';
+
+const LABEL = { 1: 'Submit request form', 2: 'Approve request form', 3: 'Accept request', 4: 'Send draft for user comment', 5: 'Approve (User approved)' };
+const WHO = { 1: 'ผู้ทำคำขอ (Requester)', 2: 'ผู้อนุมัติแบบคำขอ (User Approver)', 3: 'ฝ่ายกฎหมาย (Legal team)', 4: 'ฝ่ายกฎหมาย (Legal team)', 5: 'ผู้ทำคำขอ (Requester)' };
+const skipKeys = new Set(['user_approver', 'user_coordinator']);
+
 
 export default function RequestDetail() {
   const params = useParams();
   let id = params.id;
   if (!id && params.code) { try { id = atob(params.code); } catch { id = ''; } }
   const [tab, setTab] = useState('summary');
+  const [rej, setRej] = useState(null);
   const [r, setR] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -40,6 +46,28 @@ export default function RequestDetail() {
       <h2 className="rd-title">Request Detail &gt; {r.no}</h2>
       <Stepper current={r.step} />
       {error && <div className="err big">{error}</div>}
+
+      {r.step < STEPS.length && (
+        <div className="rd-action">
+          <span><b>{STEPS[r.step - 1]}</b>{!r.can_advance && <span className="muted"> · รอ: {WHO[r.step]}</span>}</span>
+          <span className="rd-spacer" />
+          {r.can_reject && <button className="btn btn-outline danger" disabled={busy} onClick={() => setRej('')}>Reject</button>}
+          {r.can_advance && <button className="btn btn-primary" disabled={busy} onClick={() => run(() => api.advance(id))}>{LABEL[r.step] || 'Move to next step: ' + STEPS[r.step]}</button>}
+        </div>
+      )}
+      {rej !== null && (
+        <div className="modal-back" onClick={() => setRej(null)}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <h3>Reject request</h3>
+            <p className="muted small">ระบุเหตุผล (Reason) — จะบันทึกใน History</p>
+            <textarea className="form-control" rows="4" value={rej} onChange={(e) => setRej(e.target.value)} />
+            <div className="modal-actions">
+              <button className="btn btn-outline" onClick={() => setRej(null)}>Cancel</button>
+              <button className="btn btn-primary" disabled={busy || !rej.trim()} onClick={() => { const n = rej.trim(); setRej(null); run(() => api.reject(id, n)); }}>Confirm reject</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="rd-tabs">
         {[['summary', 'Summary Request'], ['form', 'Request Form'], ['history', 'History']].map(([k, l]) => (
@@ -77,14 +105,6 @@ export default function RequestDetail() {
           <p className="rf-l rd-gap">ผู้รับเรื่อง / ผู้อนุมัติขั้นตอนสุดท้าย (Legal handler / Final approver)</p>
           <b>{r.handler_name || <span className="muted">ยังไม่มีผู้รับเรื่อง</span>}</b>
           {r.legal_note !== undefined && <><p className="rf-l rd-gap">บันทึกภายใน (เห็นเฉพาะฝ่ายกฎหมาย)</p><b>{r.legal_note || '-'}</b></>}
-          <div className="rd-gap">
-            {r.step < STEPS.length && !r.can_advance && <p className="muted">รอผู้มีสิทธิ์อนุมัติดำเนินการขั้นถัดไป: {STEPS[r.step]}</p>}
-            {r.step < STEPS.length && r.can_advance && (
-              <button className="btn btn-primary" disabled={busy} onClick={() => run(() => api.advance(id))}>
-                Move to next step: {STEPS[r.step]}
-              </button>
-            )}
-          </div>
         </section>
       )}
 
@@ -100,13 +120,17 @@ export default function RequestDetail() {
             <Row l="บริษัทที่สังกัด (User's BU)" v={r.company} />
             <Row l="แผนกที่สังกัด (User's Department)" v={r.department} />
           </div>
+          <h3 className="rd-h">ข้อมูลของผู้ประสานงานกลาง (User Coordinator Information)</h3>
+          <div className="rf-grid">
+            <Row l="ผู้อนุมัติแบบคำขอ (User Approver)" v={r.fields.user_approver} />
+            <Row l="ผู้ประสานงาน (Name of User Coordinator)" v={r.fields.user_coordinator} />
+          </div>
           <h3 className="rd-h">ข้อมูลทั่วไป (Request General Information)</h3>
           <div className="rf-grid">
-            <Row l="ประเภทคำขอ (Type of Request)" v={r.matter} />
-            <Row l="หมวด (Category)" v={r.type} />
-            <Row l="หัวข้อ (Title)" v={r.title} />
-            {Object.entries(r.fields).map(([k, v]) => <Row key={k} l={fieldLabel(r.matter, k)} v={String(v)} />)}
+            <Row l="ประเภทคำขอ (Type of Request)" v={r.type} />
+            <Row l="เรื่อง (Matters)" v={r.matter} />
           </div>
+          {formBlocks(r)}
           <h3 className="rd-h">เอกสารแนบ (Attachment)</h3>
           {r.attachments.length === 0 ? <p className="muted">No attachments</p> : (
             <ul className="file-list">{r.attachments.map((a) => <li key={a.id}><i className="mdi mdi-paperclip" /><a className="fn" href={api.downloadUrl(a.id)}>{a.filename}</a><span className="fs">{fmtSize(a.size)}</span></li>)}</ul>
@@ -135,4 +159,31 @@ export default function RequestDetail() {
       <div className="rd-back"><Link to="/" className="btn btn-outline">Back</Link></div>
     </div>
   );
+}
+
+// General-information rows grouped under the form's own headings; only fields that were answered.
+function formBlocks(r) {
+  const defs = FORMS[r.matter] || [];
+  const known = new Set(defs.map((d) => d.key));
+  const blocks = []; let cur = { title: null, rows: [] };
+  const flush = () => { if (cur.rows.length) blocks.push(cur); };
+  for (const d of defs) {
+    if (d.type === 'heading') { flush(); cur = { title: d.label, rows: [] }; continue; }
+    if (d.type === 'file' || skipKeys.has(d.key)) continue;
+    let v = r.fields[d.key];
+    if (v == null || v === '') continue;
+    if (v === OTHERS && r.fields[d.key + '_other']) v = r.fields[d.key + '_other'];
+    cur.rows.push([d.key, d.label, String(v).split(';').join('\n')]);
+  }
+  flush();
+  const legacy = Object.keys(r.fields).filter((k) => !known.has(k) && !k.endsWith('_other') && !skipKeys.has(k) && r.fields[k] !== '');
+  if (legacy.length) blocks.push({ title: null, rows: legacy.map((k) => [k, fieldLabel(r.matter, k), String(r.fields[k])]) });
+  return blocks.map((b, i) => (
+    <div key={i}>
+      {b.title && <h4 className="rd-sub">{b.title}</h4>}
+      <div className="rf-grid">
+        {b.rows.map(([k, l, v]) => <div className="rf-row" key={k}><span className="rf-l">{l}</span><b className="rf-v pre">{v}</b></div>)}
+      </div>
+    </div>
+  ));
 }

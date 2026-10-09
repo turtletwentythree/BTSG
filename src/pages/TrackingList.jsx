@@ -9,9 +9,9 @@ const decode = (c) => { try { return decodeURIComponent(escape(atob(c))); } catc
 // Columns shown beside the common ones, per matter: [header, field key]
 const COLS = {
   NDA: ['Counter Party', 'counterparty', 'purpose'],
-  'Service Agreement': ['Counter Party', 'party', 'service'],
-  'DBD Registration': ['Company', 'company', 'reg_type'],
-  'Legal Documents': ["Company's Work", null, 'doc_type'],
+  'Service Agreement': ['Counter Party', 'counterparty', 'purpose'],
+  'DBD Registration': ['Company', 'company_name', 'regs'],
+  'Legal Documents': ["Company's Work", 'company_name', 'purpose'],
 };
 
 export default function TrackingList() {
@@ -30,7 +30,7 @@ export default function TrackingList() {
   const [head, k1, k2] = COLS[matter] || ['Counter Party', null, null];
   useEffect(() => { api.list().then(setRows).catch((e) => setError(e.message)); }, []);
 
-  const val = (r, k) => (k ? (r.fields || {})[k] : r.company) ?? '';
+  const val = (r, k) => String((k ? (r.fields || {})[k] : r.company) ?? '').split(';').join(', ');
   const mine = useMemo(() => (rows || []).filter((r) => r.matter === matter), [rows, matter]);
   const opts = (fn) => [...new Set(mine.map(fn))].filter(Boolean).sort();
   const get = { no: (r) => r.no, created_at: (r) => r.created_at, company: (r) => r.company, party: (r) => String(val(r, k1)), purpose: (r) => String(val(r, k2)), handler: (r) => r.handler_name || '', step: (r) => r.step };

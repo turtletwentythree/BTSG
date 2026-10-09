@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import FormFields from '../components/FormFields.jsx';
 import Field from '../components/Field.jsx';
 import OrgFields from '../components/OrgFields.jsx';
 import Select from '../components/Select.jsx';
-import { MATTER_FIELDS } from '../data/requestTypes';
+import { FORMS, missingRequired } from '../data/requestTypes';
 import { api } from '../api';
 
 export default function EditRequest() {
@@ -33,14 +34,13 @@ export default function EditRequest() {
   if (!r || !cfg) return <div className="page">Loading...</div>;
   if (!r.can_edit) return <div className="page"><div className="err big">คุณไม่มีสิทธิ์แก้ไขคำขอนี้</div><Link to={`/requests/${id}`}>← กลับ</Link></div>;
 
-  const fields = MATTER_FIELDS[r.matter] || [];
-  const known = new Set(fields.map((f) => f.key));
-  const extra = Object.keys(values).filter((k) => !known.has(k));
+  const known = new Set((FORMS[r.matter] || []).map((f) => f.key));
+  const extra = Object.keys(values).filter((k) => !known.has(k) && !k.endsWith('_other'));
   const setVal = (k, v) => setValues({ ...values, [k]: v });
 
   const save = async () => {
     setTried(true);
-    const missing = !title.trim() || fields.some((f) => f.required && !String(values[f.key] ?? '').trim());
+    const missing = !title.trim() || missingRequired(r.matter, values).length > 0;
     if (missing) return;
     setBusy(true); setError('');
     try {
@@ -65,10 +65,7 @@ export default function EditRequest() {
           {tried && !title.trim() && <div className="err">กรุณากรอกข้อมูลนี้ (Required)</div>}
         </div>
         <OrgFields cfg={cfg} company={company} department={department} onCompany={setCompany} onDepartment={setDepartment} />
-        {fields.map((f) => (
-          <Field key={f.key} f={f} value={values[f.key] ?? ''} onChange={(v) => setVal(f.key, v)}
-            error={tried && f.required && !String(values[f.key] ?? '').trim()} />
-        ))}
+        <FormFields matter={r.matter} values={values} set={setVal} cfg={cfg} tried={tried} />
         {extra.map((k) => (
           <Field key={k} f={{ key: k, label: k, type: 'text' }} value={values[k] ?? ''} onChange={(v) => setVal(k, v)} />
         ))}

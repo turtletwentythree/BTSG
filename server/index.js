@@ -53,8 +53,8 @@ async function createRequest({ type, matter, title, requester, requester_email =
     [type, matter, title, requester, requester_email, company, department, step, JSON.stringify(fields)]
   );
   const id = rows[0].id;
-  await addHistory(client, id, 1, 'Request form filled out', requester);
-  await addHistory(client, id, 2, 'Request submitted', requester);
+  await addHistory(client, id, 1, step === 1 ? 'Create request form (draft)' : 'Create request form', requester);
+  if (step >= 2) await addHistory(client, id, 2, 'Submit request form', requester);
   if (step >= 3) await addHistory(client, id, 3, 'Waiting for acceptance', 'System');
   return id;
 }
@@ -84,11 +84,19 @@ const clip = (v, n) => (v == null ? null : String(v).trim().slice(0, n) || null)
 
 // Approval rights: approvers can move any step. The requester may only act on the step that
 // is waiting for them (5 = "Waiting for user comment").
-const REQUESTER_STEPS = new Set([5]);
+const REQUESTER_STEPS = new Set([1, 5]);
+const emailIs = (a, b) => !!a && !!b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+// step 2 is the "User Approver" named in the form; steps 1 and 5 belong to the requester; the rest to the legal team
+const isUserApprover = (r, user) => emailIs(r.fields?.user_approver, user?.email);
 const isOwner = (r, user) =>
   !!user && (r.requester_email ? r.requester_email.toLowerCase() === String(user.email || '').toLowerCase() : r.requester === user.name);
 const canEdit = (r, user) => isApprover(user) || (isOwner(r, user) && r.step < STEPS.length);
-const canAdvance = (r, user) => r.step < STEPS.length && (isApprover(user) || (REQUESTER_STEPS.has(r.step) && isOwner(r, user)));
+const canAdvance = (r, user) => r.step < STEPS.length && (
+  r.step === 2 ? (isUserApprover(r, user) || isApprover(user))
+    : r.step === 1 ? (isOwner(r, user) || isApprover(user))
+    : (isApprover(user) || (REQUESTER_STEPS.has(r.step) && isOwner(r, user))));
+const REJECT_TO = { 2: 1, 3: 1, 5: 4 };
+const canReject = (r, user) => !!REJECT_TO[r.step] && canAdvance(r, user);
 const fixName = (n) => Buffer.from(n, 'latin1').toString('utf8'); // multer gives latin1 names
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const ATT_COLS = 'id,filename,size::int AS size,mime,uploaded_by,created_at';
@@ -156,7 +164,7 @@ app.post('/api/requests', upload.array('files', 10), wrap(async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const id = await createRequest({ type, matter, title: title.trim(), requester: actor, requester_email: req.user?.email || null, company, department, fields }, client);
+    const id = await createRequest({ type, matter, title: title.trim(), requester: actor, requester_email: req.user?.email || null, company, department, fields, step: req.body.draft ? 1 : 2 }, client);
     await saveFiles(client, id, req.files, actor);
     await client.query('COMMIT');
     const { rows } = await q('SELECT * FROM requests WHERE id=$1', [id]);
@@ -172,7 +180,7 @@ app.get('/api/requests/:id', wrap(async (req, res) => {
   if (!r) return res.status(404).json({ error: 'Not found' });
   const att = await q(`SELECT ${ATT_COLS} FROM attachments WHERE request_id=$1 ORDER BY id`, [r.id]);
   const hist = await q('SELECT step,note,actor,at FROM history WHERE request_id=$1 ORDER BY id', [r.id]);
-  res.json({ ...out(r, req), can_advance: canAdvance(r, req.user), can_edit: canEdit(r, req.user), attachments: att.rows, history: hist.rows.map((h) => ({ ...h, step_name: STEPS[h.step - 1] })) });
+  res.json({ ...out(r, req), can_advance: canAdvance(r, req.user), can_reject: canReject(r, req.user), can_edit: canEdit(r, req.user), attachments: att.rows, history: hist.rows.map((h) => ({ ...h, step_name: STEPS[h.step - 1] })) });
 }));
 
 app.patch('/api/requests/:id', wrap(async (req, res) => {
@@ -236,7 +244,26 @@ app.post('/api/requests/:id/advance', wrap(async (req, res) => {
     if (r.step === 3 && !r.handler_email && isApprover(req.user)) {
       await client.query('UPDATE requests SET handler_name=$1, handler_email=$2 WHERE id=$3', [actorOf(req), req.user.email || null, r.id]);
     }
-    await addHistory(client, r.id, step, req.body?.note || STEPS[step - 1], actorOf(req));
+    const label = { 1: 'Submit request form', 2: 'Approve request form', 3: 'Accept request', 5: 'User approved' }[r.step] || STEPS[step - 1];
+    await addHistory(client, r.id, step, clip(req.body?.note, 500) || label, req.user?.email || actorOf(req));
+    await client.query('COMMIT');
+  } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
+  const { rows } = await q('SELECT * FROM requests WHERE id=$1', [r.id]);
+  res.json(out(rows[0], req));
+}));
+
+app.post('/api/requests/:id/reject', wrap(async (req, res) => {
+  const r = await findRequest(req.params.id);
+  if (!r) return res.status(404).json({ error: 'Not found' });
+  if (!canReject(r, req.user)) return res.status(403).json({ error: 'You cannot reject this step' });
+  const reason = clip(req.body?.note, 1000);
+  if (!reason) return res.status(400).json({ error: 'Please give a reason' });
+  const step = REJECT_TO[r.step];
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('UPDATE requests SET step=$1, updated_at=now() WHERE id=$2', [step, r.id]);
+    await addHistory(client, r.id, step, `Reject request: ${reason}`, req.user?.email || actorOf(req));
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
   const { rows } = await q('SELECT * FROM requests WHERE id=$1', [r.id]);
