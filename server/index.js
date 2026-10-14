@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { mountAuth, attachUser, requireAuth, sameOriginWrites, isApprover, approverList } from './auth.js';
 import { initStorage, putFile, getFile, deleteFile, storageMode } from './storage.js';
+import { STEPS, emailsOf, isLegalDoc, terminal, roles, statusLabel, actionsFor, canEdit, canUpload, fileOk, currentFinal, finalList, finalDone } from './workflow.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -29,11 +30,6 @@ const listEnv = (v, d) => { const l = (v || '').split(/[,;\n]+/).map((x) => x.tr
 const COMPANIES = listEnv(process.env.COMPANIES, ['Turtle23']);
 const DEPARTMENTS = listEnv(process.env.DEPARTMENTS, []);
 
-const STEPS = [
-  'Fill out request form', 'Submitting request', 'Waiting for acceptance', 'Reviewing',
-  'Waiting for user comment', 'User approved', 'Finalizing', 'Waiting for final approval',
-  'Signing', 'Complete',
-];
 
 /* ---------- database (PostgreSQL / Supabase) ---------- */
 const local = /localhost|127\.0\.0\.1/.test(process.env.DATABASE_URL);
@@ -47,12 +43,24 @@ const q = (text, params) => pool.query(text, params);
 const addHistory = (c, rid, step, note, actor) =>
   c.query('INSERT INTO history (request_id, step, note, actor) VALUES ($1,$2,$3,$4)', [rid, step, note, actor]);
 
+// Request No. is issued when the request is first submitted: R + yyyymmdd (Bangkok) + running number of the day
+async function assignNo(client, id) {
+  const ymd = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10).replace(/-/g, '');
+  await client.query('SELECT pg_advisory_xact_lock(7711)');
+  const { rows } = await client.query(
+    "SELECT COALESCE(MAX(substring(no from 10)::int),0)+1 AS n FROM requests WHERE no ~ $1", [`^R${ymd}[0-9]+$`]);
+  const no = `R${ymd}${String(rows[0].n).padStart(3, '0')}`;
+  await client.query('UPDATE requests SET no=$1 WHERE id=$2', [no, id]);
+  return no;
+}
+
 async function createRequest({ type, matter, title, requester, requester_email = null, company = COMPANIES[0], department = null, fields = {}, step = 3 }, client = pool) {
   const { rows } = await client.query(
-    'INSERT INTO requests (type,matter,title,requester,requester_email,company,department,step,fields) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',
-    [type, matter, title, requester, requester_email, company, department, step, JSON.stringify(fields)]
+    'INSERT INTO requests (type,matter,title,requester,requester_email,company,department,step,fields,submitted) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id',
+    [type, matter, title, requester, requester_email, company, department, step, JSON.stringify(fields), step >= 2]
   );
   const id = rows[0].id;
+  if (step >= 2) await assignNo(client, id);
   await addHistory(client, id, 1, step === 1 ? 'Create request form (draft)' : 'Create request form', requester);
   if (step >= 2) await addHistory(client, id, 2, 'Submit request form', requester);
   if (step >= 3) await addHistory(client, id, 3, 'Waiting for acceptance', 'System');
@@ -76,29 +84,11 @@ async function initDb() {
 }
 
 /* ---------- helpers ---------- */
-const withStep = (r) => r && { ...r, step_name: STEPS[r.step - 1], status_label: r.step === 1 ? (r.rejected ? 'Rejected' : 'Draft') : STEPS[r.step - 1] };
+const withStep = (r) => r && { ...r, step_name: STEPS[r.step - 1], status_label: statusLabel(r) };
 const actorOf = (req) => req.user?.name || 'Unknown';
 // legal_note is internal: only the legal team (approvers) may see it
 const out = (r, req) => { const o = withStep(r); if (!isApprover(req.user)) delete o.legal_note; return o; };
 const clip = (v, n) => (v == null ? null : String(v).trim().slice(0, n) || null);
-
-// Approval rights: approvers can move any step. The requester may only act on the step that
-// is waiting for them (5 = "Waiting for user comment").
-const REQUESTER_STEPS = new Set([1, 5, 6]);
-const emailIs = (a, b) => !!a && !!b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
-// step 2 is the "User Approver" named in the form; steps 1 and 5 belong to the requester; the rest to the legal team
-const isUserApprover = (r, user) => emailIs(r.fields?.user_approver, user?.email);
-const isOwner = (r, user) =>
-  !!user && (r.requester_email ? r.requester_email.toLowerCase() === String(user.email || '').toLowerCase() : r.requester === user.name);
-const canEdit = (r, user) => isApprover(user) || (isOwner(r, user) && r.step < STEPS.length);
-const finalList = (r) => String(r.final_approvers || '').split(';').map((x) => x.trim()).filter(Boolean);
-const canAdvance = (r, user) => r.step < STEPS.length && (
-  r.step === 8 && finalList(r).length ? (emailIs(finalList(r)[r.final_idx], user?.email) || isApprover(user))
-    : r.step === 2 ? (isUserApprover(r, user) || isApprover(user))
-    : r.step === 1 ? (isOwner(r, user) || isApprover(user))
-    : (isApprover(user) || (REQUESTER_STEPS.has(r.step) && isOwner(r, user))));
-const REJECT_TO = { 2: 1, 3: 1, 5: 4, 8: 7 };
-const canReject = (r, user) => !!REJECT_TO[r.step] && canAdvance(r, user);
 const fixName = (n) => Buffer.from(n, 'latin1').toString('utf8'); // multer gives latin1 names
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const ATT_COLS = 'id,filename,size::int AS size,mime,uploaded_by,created_at,kind';
@@ -152,7 +142,9 @@ app.get('/api/requests', wrap(async (req, res) => {
   const { rows } = term
     ? await q(`SELECT * FROM requests WHERE (no || ' ' || title || ' ' || type || ' ' || matter) ILIKE $1 ORDER BY id DESC`, [`%${term}%`])
     : await q('SELECT * FROM requests ORDER BY id DESC');
-  res.json(rows.map((r) => out(r, req)));
+  const me = String(req.user?.email || '').toLowerCase();
+  const visible = rows.filter((r) => r.submitted || isApprover(req.user) || String(r.requester_email || '').toLowerCase() === me);
+  res.json(visible.map((r) => out(r, req)));
 }));
 
 app.post('/api/requests', upload.array('files', 10), wrap(async (req, res) => {
@@ -182,7 +174,9 @@ app.get('/api/requests/:id', wrap(async (req, res) => {
   if (!r) return res.status(404).json({ error: 'Not found' });
   const att = await q(`SELECT ${ATT_COLS} FROM attachments WHERE request_id=$1 ORDER BY id`, [r.id]);
   const hist = await q('SELECT step,note,actor,at FROM history WHERE request_id=$1 ORDER BY id', [r.id]);
-  res.json({ ...out(r, req), can_advance: canAdvance(r, req.user), can_reject: canReject(r, req.user), can_edit: canEdit(r, req.user), attachments: att.rows, history: hist.rows.map((h) => ({ ...h, step_name: STEPS[h.step - 1] })) });
+  const ro = roles(r, req.user);
+  res.json({ ...out(r, req), actions: actionsFor(r, req.user), can_edit: canEdit(r, req.user), my_roles: Object.keys(ro).filter((k) => ro[k]),
+    final_list: finalList(r), final_done: finalDone(r), current_final: currentFinal(r) || null, attachments: att.rows, history: hist.rows.map((h) => ({ ...h, step_name: STEPS[h.step - 1] })) });
 }));
 
 app.patch('/api/requests/:id', wrap(async (req, res) => {
@@ -214,11 +208,6 @@ app.patch('/api/requests/:id', wrap(async (req, res) => {
       handler_name = he ? (hn || he) : null;
     }
     if (req.body?.legal_note !== undefined) legal_note = clip(req.body.legal_note, 5000);
-    if (req.body?.final_approvers !== undefined) {
-      const list = String(req.body.final_approvers).split(/[;,\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean).slice(0, 10);
-      await pool.query('UPDATE requests SET final_approvers=$1, final_idx=0 WHERE id=$2', [list.join(';') || null, r.id]);
-      changed.push('final_approvers');
-    }
     if ((handler_email || '') !== (r.handler_email || '')) changed.push('handler');
     if ((legal_note || '') !== (r.legal_note || '')) changed.push('legal_note');
   }
@@ -237,70 +226,112 @@ app.patch('/api/requests/:id', wrap(async (req, res) => {
   res.json(out(rows[0], req));
 }));
 
-app.post('/api/requests/:id/advance', wrap(async (req, res) => {
+app.post('/api/requests/:id/action', wrap(async (req, res) => {
   const r = await findRequest(req.params.id);
   if (!r) return res.status(404).json({ error: 'Not found' });
-  if (r.step >= STEPS.length) return res.status(400).json({ error: 'Already complete' });
-  if (!canAdvance(r, req.user)) return res.status(403).json({ error: 'You do not have permission to approve this step' });
+  const key = String(req.body?.action || '');
+  const act = actionsFor(r, req.user).find((a) => a.key === key);
+  if (!act) return res.status(403).json({ error: 'You cannot do this action at this step' });
+  const body = req.body || {};
+  const note = clip(body.note, 1000);
+  if (act.note === 'required' && !note) return res.status(400).json({ error: 'Please write a comment / reason first' });
   const who = req.user?.email || actorOf(req);
-  const note = clip(req.body?.note, 500);
-  let step = r.step + 1;
-  let label = { 1: 'Submit request form', 2: 'Approve request form', 3: 'Accept request', 4: 'Send review opinion to coordinator', 5: 'Coordinator approved', 6: 'Memo for signing prepared', 7: 'Signing version prepared', 9: 'Signed document recorded' }[r.step] || STEPS[step - 1];
-  if (r.step === 4 && !note) return res.status(400).json({ error: 'Please write a comment for the user (review comment)' });
-  const needKind = async (kind, msg) => {
-    const f = await q('SELECT COUNT(*)::int AS c FROM attachments WHERE request_id=$1 AND kind=$2', [r.id, kind]);
-    if (!f.rows[0].c) { res.status(400).json({ error: msg }); return false; }
-    return true;
-  };
-  if (r.step === 6 && !(await needKind('memo', 'Attach the memo for signing before handing over to Legal'))) return;
-  if (r.step === 9 && !(await needKind('signed', 'Upload the signed document before completing'))) return;
-  if (r.step === 7) {
-    const f = await q("SELECT COUNT(*)::int AS c FROM attachments WHERE request_id=$1 AND kind='final'", [r.id]);
-    if (!f.rows[0].c) return res.status(400).json({ error: 'Attach the finalized document before sending it for final approval' });
-  }
-  let idx = r.final_idx;
-  if (r.step === 8) {
-    const list = finalList(r);
-    if (list.length) {
-      idx = r.final_idx + 1;
-      label = `Final approval ${idx}/${list.length}`;
-      if (idx < list.length) step = 8; // more approvers in the sequence
-    } else label = 'Final approved';
-  }
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query('UPDATE requests SET step=$1, final_idx=$2, rejected=false, updated_at=now() WHERE id=$3', [step, idx, r.id]);
-    // the legal person who accepts the request becomes its handler (ผู้รับเรื่อง); they may assign someone else
-    if (r.step === 3 && isApprover(req.user)) {
-      const he = clip(req.body?.handler_email, 200)?.toLowerCase();
-      if (he) {
-        const u = await client.query('SELECT name FROM users WHERE email=$1', [he]);
-        await client.query('UPDATE requests SET handler_name=$1, handler_email=$2 WHERE id=$3', [u.rows[0]?.name || he, he, r.id]);
-        label = `Accept request (assigned to ${u.rows[0]?.name || he})`;
-      } else if (!r.handler_email) {
-        await client.query('UPDATE requests SET handler_name=$1, handler_email=$2 WHERE id=$3', [actorOf(req), req.user.email || null, r.id]);
-      }
-    }
-    await addHistory(client, r.id, step, note ? `${label}: ${note}` : label, who);
-    await client.query('COMMIT');
-  } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
-  const { rows } = await q('SELECT * FROM requests WHERE id=$1', [r.id]);
-  res.json(out(rows[0], req));
-}));
+  const bad = (m) => res.status(400).json({ error: m });
+  const count = async (kind) => (await q('SELECT COUNT(*)::int AS c FROM attachments WHERE request_id=$1 AND kind=$2', [r.id, kind])).rows[0].c;
+  const upd = {};
+  let step = r.step;
+  let label = act.label;
+  const f = r.fields || {};
 
-app.post('/api/requests/:id/reject', wrap(async (req, res) => {
-  const r = await findRequest(req.params.id);
-  if (!r) return res.status(404).json({ error: 'Not found' });
-  if (!canReject(r, req.user)) return res.status(403).json({ error: 'You cannot reject this step' });
-  const reason = clip(req.body?.note, 1000);
-  if (!reason) return res.status(400).json({ error: 'Please give a reason' });
-  const step = REJECT_TO[r.step];
+  switch (key) {
+    case 'save': return res.json(out(r, req)); // the edit form does the saving; nothing to record
+    case 'submit':
+      if (r.step === 1) {
+        if (emailsOf(f.user_approver).length !== 1) return bad('Please enter the e-mail of the User Approver (Director level or above)');
+        const cos = emailsOf(f.user_coordinator);
+        if (cos.length < 1 || cos.length > 2) return bad('Please enter the e-mail of 1-2 User Coordinators');
+        if (isLegalDoc(r) && /^รับรอง/.test(f.certified || '') && !(await count('memo'))) return bad('Certified true copy requires a Signing Memo: please attach it first');
+        step = 2; upd.state = null; upd.submitted = true;
+        label = r.submitted ? 'Re-submit request form' : 'Submit request form';
+      } else if (r.step === 6) {
+        const fin = body.finalizer;
+        if (!['counterparty', 'legal'].includes(fin)) return bad('Please choose who prepares the final draft');
+        if (!(await count('memo'))) return bad('Please attach the Signing Memo');
+        if (fin === 'counterparty' && !(await count('final'))) return bad('Please attach the final draft prepared by the counterparty');
+        upd.finalizer = fin; upd.memo_lang = clip(body.memo_lang, 10);
+        step = 7; upd.final_stage = 0;
+        label = fin === 'counterparty' ? 'Submit Signing Memo (counterparty prepares final draft)' : 'Submit Signing Memo (legal prepares final draft)';
+      } else if (r.step === 7 && r.final_stage === 0) {
+        if (!(await count('final'))) return bad('Please attach the final draft');
+        const list = [...new Set(emailsOf(body.final_approvers))];
+        if (list.length > 3) return bad('Legal can select up to 3 Final Approvers');
+        upd.final_approvers = list.join(';') || null; upd.final_stage = 1;
+        label = 'Final draft ready, Final Approver(s) selected';
+      } else if (r.step === 7) {
+        const first = finalList(r);
+        const extra = [...new Set(emailsOf(body.extra_approvers))];
+        if (extra.length > 3) return bad('You can add up to 3 more Final Approvers');
+        const dup = extra.find((e) => first.includes(e));
+        if (dup) return bad(`${dup} was already selected by the legal team`);
+        const all = [...first, ...extra];
+        if (!emailsOf(f.user_approver).some((e) => all.includes(e))) return bad(`The User Approver (${f.user_approver}) must be one of the Final Approvers`);
+        upd.final_approvers = all.join(';'); upd.final_stage = 0;
+        step = 8;
+        label = 'Send to Final Approvers';
+      }
+      break;
+    case 'approve':
+      if (r.step === 2) { step = 3; label = 'Approve request form'; }
+      else if (r.step === 5) { step = isLegalDoc(r) ? 9 : 6; label = 'Approve (User approved)'; }
+      else if (r.step === 8) {
+        const cur = currentFinal(r);
+        const done = finalDone(r);
+        if (cur) done.push(cur);
+        upd.final_done = done.join(';');
+        const left = finalList(r).filter((e) => !done.includes(e));
+        const onBehalf = cur && !emailsOf(who).includes(cur) ? ' (on behalf)' : '';
+        label = cur ? `Final approval by ${cur}${onBehalf}` : 'Final approved';
+        if (!left.length) step = 9;
+      }
+      break;
+    case 'return':
+      if (r.step === 2) { step = 1; upd.state = 'returned'; label = 'Return to Coordinator'; }
+      else if (r.step === 5) { step = 4; label = 'Return to Legal'; }
+      break;
+    case 'accept': {
+      step = 4; label = 'Accept request';
+      const he = clip(body.handler_email, 200)?.toLowerCase();
+      if (he) {
+        const u = await q('SELECT name FROM users WHERE email=$1', [he]);
+        upd.handler_email = he; upd.handler_name = u.rows[0]?.name || he;
+        label = `Accept request (assigned to ${upd.handler_name})`;
+      } else if (!r.handler_email) { upd.handler_name = actorOf(req); upd.handler_email = req.user?.email || null; }
+      break;
+    }
+    case 'reject':
+      if (r.step === 3) { upd.state = 'rejected'; label = 'Reject request'; }
+      else if (r.step === 8) { step = 7; upd.final_stage = 0; label = 'Final Approver rejected, back to Legal'; }
+      break;
+    case 'send': step = 5; label = 'Send comment to Coordinator'; break;
+    case 'request_cancel': upd.state = 'cancel_pending'; label = 'Legal requests cancellation'; break;
+    case 'decline_cancel': upd.state = null; label = 'Coordinator declined the cancellation, back to Legal'; break;
+    case 'accept_cancel': upd.state = 'cancelled'; label = 'Cancellation approved'; break;
+    case 'cancel': upd.state = 'cancelled'; label = 'Cancel request'; break;
+    case 'complete':
+      if (!(await count('signed'))) return bad('Please upload the signed file first');
+      step = 10; label = 'Signed file recorded, request complete';
+      break;
+    default: return bad('Unknown action');
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('UPDATE requests SET step=$1, rejected=$2, final_idx=0, updated_at=now() WHERE id=$3', [step, step === 1, r.id]);
-    await addHistory(client, r.id, step, `${[2, 5].includes(r.step) ? 'Return' : 'Reject'} request: ${reason}`, req.user?.email || actorOf(req));
+    const cols = { step, ...upd };
+    const keys = Object.keys(cols);
+    await client.query(`UPDATE requests SET ${keys.map((k, i) => `${k}=$${i + 1}`).join(', ')}, updated_at=now() WHERE id=$${keys.length + 1}`, [...keys.map((k) => cols[k]), r.id]);
+    if (upd.submitted && !r.no) await assignNo(client, r.id);
+    await addHistory(client, r.id, step, note ? `${label}: ${note}` : label, who);
     await client.query('COMMIT');
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
   const { rows } = await q('SELECT * FROM requests WHERE id=$1', [r.id]);
@@ -310,9 +341,9 @@ app.post('/api/requests/:id/reject', wrap(async (req, res) => {
 app.post('/api/requests/:id/attachments', upload.array('files', 10), wrap(async (req, res) => {
   const r = await findRequest(req.params.id);
   if (!r) return res.status(404).json({ error: 'Not found' });
-  const kind = ['final', 'memo', 'signed'].includes(req.body?.kind) ? req.body.kind : null;
-  const memoByOwner = kind === 'memo' && r.step === 6 && isOwner(r, req.user);
-  if (kind && !isApprover(req.user) && !memoByOwner) return res.status(403).json({ error: 'You cannot upload this kind of document' });
+  const kind = ['final', 'memo', 'signed', 'work'].includes(req.body?.kind) ? req.body.kind : null;
+  if (!canUpload(r, req.user, kind)) return res.status(403).json({ error: 'You cannot upload files here' });
+  if (kind && (req.files || []).some((f) => !fileOk(fixName(f.originalname)))) return res.status(400).json({ error: 'Only Word, PDF, JPG or PNG files are accepted (no PowerPoint / Excel)' });
   await saveFiles(pool, r.id, req.files, actorOf(req), kind);
   await q('UPDATE requests SET updated_at=now() WHERE id=$1', [r.id]);
   const { rows } = await q(`SELECT ${ATT_COLS} FROM attachments WHERE request_id=$1 ORDER BY id`, [r.id]);
@@ -364,7 +395,8 @@ app.get('/api/stats', wrap(async (req, res) => {
     return Object.entries(m).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
   };
   const done = rows.filter((r) => r.step === STEPS.length);
-  const byStep = STEPS.map((name, i) => ({ step: i + 1, name, count: rows.filter((r) => r.step === i + 1).length }));
+  const closed = rows.filter((r) => r.state === 'rejected' || r.state === 'cancelled');
+  const byStep = STEPS.map((name, i) => ({ step: i + 1, name, count: rows.filter((r) => r.step === i + 1 && r.state !== 'rejected' && r.state !== 'cancelled').length }));
   const months = [];
   const d = new Date();
   for (let i = 5; i >= 0; i--) {
@@ -373,13 +405,13 @@ app.get('/api/stats', wrap(async (req, res) => {
     months.push({ month: key, count: rows.filter((r) => new Date(r.created_at).toISOString().startsWith(key)).length });
   }
   const stalled = rows
-    .filter((r) => r.step < STEPS.length && days(r.updated_at, now) >= 7)
+    .filter((r) => !terminal(r) && r.submitted && days(r.updated_at, now) >= 7)
     .map((r) => ({ id: r.id, no: r.no, title: r.title, step_name: STEPS[r.step - 1], days: Math.floor(days(r.updated_at, now)) }))
     .sort((a, b) => b.days - a.days);
   res.json({
     total: rows.length,
     completed: done.length,
-    inProgress: rows.length - done.length,
+    inProgress: rows.length - done.length - closed.length,
     avgDaysToComplete: done.length ? +(done.reduce((t, r) => t + days(r.created_at, r.updated_at), 0) / done.length).toFixed(1) : null,
     byType: count('type'), byMatter: count('matter'), byStep, byMonth: months, stalled,
     byCompany: count('company'),

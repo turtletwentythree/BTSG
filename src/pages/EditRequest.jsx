@@ -56,9 +56,9 @@ export default function EditRequest() {
 
   return (
     <div className="page create">
-      <div className="crumb"><Link to={`/requests/${id}`}>← {r.no}</Link></div>
+      <div className="crumb"><Link to={`/requests/${id}`}>← {r.no || 'Draft'}</Link></div>
       <div className="form-body">
-        <h2>แก้ไขข้อมูลคำขอ <small>{r.no} · {r.type} · {r.matter} · ผู้ยื่น: {r.requester}</small></h2>
+        <h2>แก้ไขข้อมูลคำขอ <small>{r.no || 'Draft'} · {r.type} · {r.matter} · ผู้ยื่น: {r.requester}</small></h2>
         <div className="field">
           <label>หัวข้อคำขอ (Title)<span className="req">*</span></label>
           <input className="form-control" value={title} onChange={(e) => setTitle(e.target.value)} />

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
-import { REQUEST_TYPES, STEPS } from '../data/requestTypes';
+import { REQUEST_TYPES, STATUS_OPTIONS, matchStatus } from '../data/requestTypes';
 
 export const matterCode = (m) => btoa(unescape(encodeURIComponent(m)));
 const decode = (c) => { try { return decodeURIComponent(escape(atob(c))); } catch { return ''; } };
@@ -37,7 +37,7 @@ export default function TrackingList() {
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
     const list = mine.filter((r) =>
-      (!company || r.company === company) && (!handler || r.handler_name === handler) && (!status || String(r.step) === status) &&
+      (!company || r.company === company) && (!handler || r.handler_name === handler) && matchStatus(r, status) &&
       (!s || [r.no, r.title, r.company, val(r, k1), val(r, k2), r.handler_name].join(' ').toLowerCase().includes(s)));
     const g = get[sort.key];
     return list.sort((a, b) => (g(a) > g(b) ? 1 : g(a) < g(b) ? -1 : 0) * sort.dir);
@@ -77,7 +77,7 @@ export default function TrackingList() {
         </label>
         <label>Status
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">ทั้งหมด</option>{STEPS.map((o, i) => <option key={o} value={i + 1}>{o}</option>)}
+            <option value="">ทั้งหมด</option>{STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.name}</option>)}
           </select>
         </label>
       </div>
@@ -91,9 +91,9 @@ export default function TrackingList() {
           <tbody>
             {shown.map((r) => (
               <tr key={r.id} className="clickable" onClick={() => nav('/requests/' + r.id)}>
-                <td>{r.no}</td><td>{r.created_at.slice(0, 10)}</td><td>{r.company}</td>
+                <td>{r.no || 'Draft'}</td><td>{r.created_at.slice(0, 10)}</td><td>{r.company}</td>
                 <td>{String(val(r, k1)) || '-'}</td><td>{String(val(r, k2)) || '-'}</td><td>{r.handler_name || '-'}</td>
-                <td><span className={'badge-status' + (r.step === 10 ? ' done' : '')}>{r.status_label}</span></td>
+                <td><span className={'badge-status' + (r.step === 10 ? ' done' : r.state === 'rejected' || r.state === 'cancelled' ? ' bad' : '')}>{r.status_label}</span></td>
               </tr>
             ))}
             {rows && shown.length === 0 && <tr><td colSpan="7" className="empty">No result found!</td></tr>}

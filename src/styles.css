@@ -248,3 +248,17 @@ textarea.form-control{resize:vertical}
 .rd-assign select,.rd-assign input{flex:1;min-width:200px}
 .final-list{margin:6px 0 10px;padding-left:20px}
 .final-list li.done{color:#2e7d32}
+
+/* workflow (Work Area / status) */
+.rd-status{display:flex;gap:6px;align-items:center;padding:10px 14px;margin:10px 0;border-radius:8px;background:#eef3ff;color:#1f3a8a}
+.rd-status.bad{background:#fdecec;color:#a12626}
+.rd-card.work{border-left:4px solid #2b6cf6}
+.wk-block{margin:10px 0}
+.wk-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+.wk-sel{padding:6px 8px;border:1px solid #cfd6e4;border-radius:6px}
+.wk-actions{margin-top:12px;padding-top:10px;border-top:1px solid #e6eaf2}
+.rd-hint{background:#fff7e6;border:1px solid #f2d49b;padding:8px 10px;border-radius:6px;margin-bottom:8px}
+.btn-sm{padding:5px 10px;font-size:13px}
+.final-list li.cur{color:#2b6cf6;font-weight:700}
+.badge-status.bad{background:#fdecec;color:#a12626}
+.form-control.gap{margin-top:6px}

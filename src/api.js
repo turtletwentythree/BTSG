@@ -17,11 +17,8 @@ export const api = {
   update: (id, body) => call('/requests/' + id, {
     method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
   }),
-  advance: (id, note, extra = {}) => call(`/requests/${id}/advance`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note, ...extra }),
-  }),
-  reject: (id, note) => call(`/requests/${id}/reject`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note }),
+  action: (id, action, body = {}) => call(`/requests/${id}/action`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, ...body }),
   }),
   upload: (id, files, kind) => {
     const f = new FormData();

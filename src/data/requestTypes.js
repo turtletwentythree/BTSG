@@ -288,6 +288,7 @@ export const FORMS = {
     { type: 'heading', label: 'การรับรองสำเนาถูกต้อง (Certified True Copy)' },
     { key: 'certified', label: 'ต้องการรับรองสำเนาถูกต้องหรือไม่ (Certified True Copy)', type: 'radio',
       options: ['รับรองสำเนาถูกต้อง (Certified true copy)', 'ไม่รับรองสำเนาถูกต้อง (Not certified as a true copy)'] },
+    { key: 'f_memo', kind: 'memo', label: 'แนบ Signing Memo (กรณีขอให้รับรองสำเนาถูกต้อง ต้องแนบ Signing Memo ที่จัดทำโดย USER)', type: 'file', show: (v) => /^รับรอง/.test(v.certified || '') },
     ...approval,
   ],
 };
@@ -309,3 +310,13 @@ export const deriveTitle = (matter, v) => {
 export const isReq = (f, v) => (typeof f.required === 'function' ? f.required(v) : !!f.required);
 export const missingRequired = (matter, v) =>
   visibleFields(matter, v).filter((f) => isReq(f, v) && !String(v[f.key] ?? '').trim()).map((f) => f.key);
+
+// status filter used by the request lists: steps 1-10 plus the special states
+export const STATUS_OPTIONS = [
+  ...STEPS.map((name, i) => ({ value: String(i + 1), name })),
+  { value: 'draft', name: 'Draft' }, { value: 'return', name: 'Return' },
+  { value: 'rejected', name: 'Rejected' }, { value: 'cancelled', name: 'Cancelled' },
+];
+export const statusKey = (r) => (r.state === 'rejected' ? 'rejected' : r.state === 'cancelled' ? 'cancelled'
+  : r.step === 1 ? (r.submitted ? 'return' : 'draft') : String(r.step));
+export const matchStatus = (r, v) => !v || statusKey(r) === v;

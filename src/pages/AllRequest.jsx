@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { STEPS } from '../data/requestTypes';
+import { STATUS_OPTIONS, matchStatus } from '../data/requestTypes';
 
 const EMPTY = { company: '', department: '', type: '', matter: '', status: '', requester: '', handler: '', from: '', to: '' };
 
@@ -19,7 +19,7 @@ export default function AllRequest() {
   const shown = useMemo(() => (rows || []).filter((r) =>
     (!flt.company || r.company === flt.company) && (!flt.department || r.department === flt.department) &&
     (!flt.handler || r.handler_name === flt.handler) && (!flt.type || r.type === flt.type) && (!flt.matter || r.matter === flt.matter) &&
-    (!flt.requester || r.requester === flt.requester) && (!flt.status || String(r.step) === flt.status) &&
+    (!flt.requester || r.requester === flt.requester) && matchStatus(r, flt.status) &&
     (!flt.from || r.created_at.slice(0, 10) >= flt.from) && (!flt.to || r.created_at.slice(0, 10) <= flt.to)), [rows, flt]);
   const active = Object.values(flt).some(Boolean);
   useEffect(() => {
@@ -65,7 +65,7 @@ export default function AllRequest() {
         </label>
         <label>Status
           <select value={flt.status} onChange={(e) => setF('status', e.target.value)}>
-            <option value="">ทั้งหมด</option>{STEPS.map((o, i) => <option key={o} value={i + 1}>{o}</option>)}
+            <option value="">ทั้งหมด</option>{STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.name}</option>)}
           </select>
         </label>
         <label>Requester
@@ -96,9 +96,9 @@ export default function AllRequest() {
           <tbody>
             {shown.map((r) => (
               <tr key={r.id} className="clickable" onClick={() => nav('/requests/' + r.id)}>
-                <td>{r.no}</td><td>{r.company}</td><td>{r.department || '-'}</td><td>{r.type}</td><td>{r.matter}</td><td>{r.title}</td>
+                <td>{r.no || 'Draft'}</td><td>{r.company}</td><td>{r.department || '-'}</td><td>{r.type}</td><td>{r.matter}</td><td>{r.title}</td>
                 <td>{r.requester}</td><td>{r.handler_name || '-'}</td><td>{r.created_at.slice(0, 10)}</td>
-                <td><span className={'badge-status' + (r.step === 10 ? ' done' : '')}>{r.status_label || STEPS[r.step - 1]}</span></td>
+                <td><span className={'badge-status' + (r.step === 10 ? ' done' : r.state === 'rejected' || r.state === 'cancelled' ? ' bad' : '')}>{r.status_label}</span></td>
               </tr>
             ))}
             {rows && shown.length === 0 && <tr><td colSpan="10" className="empty">No requests found</td></tr>}

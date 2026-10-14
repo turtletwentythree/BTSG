@@ -31,6 +31,9 @@ export default function CreateRequest() {
   const go = async (draft) => {
     setTried(true);
     if (!draft && missingRequired(matter, values).length) return;
+    if (!draft && matter === 'Legal Documents' && /^รับรอง/.test(values.certified || '') && !(fileMap.f_memo || []).length) {
+      setError('กรณีขอรับรองสำเนาถูกต้อง ต้องแนบ Signing Memo'); return;
+    }
     setBusy(true); setError('');
     try {
       const form = new FormData();
@@ -38,8 +41,9 @@ export default function CreateRequest() {
       form.append('company', company); form.append('department', department);
       form.append('draft', draft ? '1' : '');
       form.append('fields', JSON.stringify(values));
-      Object.values(fileMap).flat().forEach((f) => form.append('files', f));
+      Object.entries(fileMap).filter(([k]) => k !== 'f_memo').forEach(([, l]) => l.forEach((f) => form.append('files', f)));
       const r = await api.create(form);
+      if ((fileMap.f_memo || []).length && /^รับรอง/.test(values.certified || '')) await api.upload(r.id, fileMap.f_memo, 'memo');
       nav('/requests/' + r.id);
     } catch (e) { setError(e.message); setBusy(false); }
   };
